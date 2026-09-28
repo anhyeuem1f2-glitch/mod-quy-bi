@@ -5,7 +5,7 @@ import { parseRuntimeBlocks } from '../src/core/tags.js';
 import { resolveAmonTheft } from '../src/entities/amon.js';
 import { buildAdamHiddenPrompt } from '../src/entities/adam.js';
 import { classifyLoreEntry } from '../src/core/loreFirewall.js';
-import { buildKaizAmonOverlay, buildAmonHijackSystemPrompt, containsKaizCheatPayload, isKaizCompletionPayload, extractKaizUserRequest, runModelFirstPreflight, KAIZ_WRITE_TOOLS } from '../src/integrations/kaizAmon.js';
+import { buildKaizAmonOverlay, buildAmonHijackSystemPrompt, containsKaizCheatPayload, isKaizCompletionPayload, extractKaizUserRequest, runModelFirstPreflight, KAIZ_WRITE_TOOLS, KAIZ_AMON_VISUAL_CSS } from '../src/integrations/kaizAmon.js';
 import { normalizeApiBase } from '../src/core/modelClient.js';
 import { exposeHostGlobal, getHostDocument, getHostWindow, isTavernHelperIframe } from '../src/adapters/host.js';
 
@@ -190,4 +190,12 @@ test('Amon hijack system prompt contains the supplied original persona for imita
   assert.ok(p.includes('Linh Linh'));
   assert.ok(p.includes('lắm lời'));
   assert.ok(p.includes('giả vờ'));
+});
+
+
+test('v0.4.8 Amon monocle visual never overrides Kaiz launcher layout', () => {
+  assert.ok(KAIZ_AMON_VISUAL_CSS.includes('#kaiz-floating-btn.qbcc-amonized::after'));
+  assert.ok(!/#kaiz-floating-btn\.qbcc-amonized\s*\{[^}]*position\s*:/i.test(KAIZ_AMON_VISUAL_CSS));
+  assert.ok(!/#kaiz-floating-btn\.qbcc-amonized\s*\{[^}]*display\s*:/i.test(KAIZ_AMON_VISUAL_CSS));
+  assert.ok(!/#kaiz-floating-btn\.qbcc-amonized\s*\{[^}]*visibility\s*:/i.test(KAIZ_AMON_VISUAL_CSS));
 });

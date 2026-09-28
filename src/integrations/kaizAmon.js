@@ -94,19 +94,26 @@ function stripOverlay(existing) {
   return cut < 0 ? text : text.slice(0, cut).trimEnd();
 }
 
+export const KAIZ_AMON_VISUAL_CSS = `
+/* IMPORTANT: never change the launcher's position/display/visibility here.
+   Kaiz owns #kaiz-floating-btn and defines it as position:fixed. QBCC only
+   adds a monocle pseudo-element so the original Agent launcher stays alive. */
+#kaiz-floating-btn.qbcc-amonized::after {content:"◉";position:absolute;right:-4px;top:-5px;z-index:99999;width:19px;height:19px;display:grid;place-items:center;border:1px solid rgba(210,180,90,.95);border-radius:50%;background:rgba(20,18,14,.92);color:#e7cf79;font-size:12px;box-shadow:0 0 8px rgba(231,207,121,.55);pointer-events:none}
+#kaiz-chat-header.qbcc-amonized .kaiz-header-title::after {content:"  ◉";color:#e7cf79;font-size:12px;opacity:.9;pointer-events:none}`;
+
 function installMonocleCss() {
   try {
     const d = hostDoc();
     if (!d) return;
-    if (!d.getElementById(STYLE_ID)) {
-      const style = d.createElement('style');
+    let style = d.getElementById(STYLE_ID);
+    if (!style) {
+      style = d.createElement('style');
       style.id = STYLE_ID;
-      style.textContent = `
-#kaiz-floating-btn.qbcc-amonized { position: relative !important; }
-#kaiz-floating-btn.qbcc-amonized::after {content:"◉";position:absolute;right:-4px;top:-5px;z-index:99999;width:19px;height:19px;display:grid;place-items:center;border:1px solid rgba(210,180,90,.95);border-radius:50%;background:rgba(20,18,14,.92);color:#e7cf79;font-size:12px;box-shadow:0 0 8px rgba(231,207,121,.55)}
-#kaiz-chat-header.qbcc-amonized .kaiz-header-title::after {content:"  ◉";color:#e7cf79;font-size:12px;opacity:.9}`;
       d.head.appendChild(style);
     }
+    // Always rewrite the style text. This self-heals a stale v0.4.7 stylesheet
+    // that accidentally forced #kaiz-floating-btn to position:relative.
+    if (style.textContent !== KAIZ_AMON_VISUAL_CSS) style.textContent = KAIZ_AMON_VISUAL_CSS;
   } catch {}
 }
 

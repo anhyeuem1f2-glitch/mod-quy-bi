@@ -20,7 +20,7 @@ import { installMainEntityAuthorityGate } from './integrations/entityAuthority.j
 import { armFateViewportReroll } from './integrations/fateViewport.js';
 import { exposeHostGlobal, getHostWindow, isTavernHelperIframe } from './adapters/host.js';
 
-const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V047__';
+const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V048__';
 const LEGACY_INSTANCE_KEYS = [
   '__QBCC_RUNTIME_COMPANION__',
   '__QBCC_RUNTIME_COMPANION_V040__',
@@ -30,6 +30,7 @@ const LEGACY_INSTANCE_KEYS = [
   '__QBCC_RUNTIME_COMPANION_V044__',
   '__QBCC_RUNTIME_COMPANION_V045__',
   '__QBCC_RUNTIME_COMPANION_V046__',
+  '__QBCC_RUNTIME_COMPANION_V047__',
 ];
 
 function disposeLegacyRuntime(instance, key = 'legacy') {
