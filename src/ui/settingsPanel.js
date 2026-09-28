@@ -5,7 +5,7 @@ const ROOT_ID = 'qbcc-runtime-settings-root';
 const SETTINGS_STYLE_ID = 'qbcc-runtime-settings-style';
 // Official SillyTavern extension settings injection points. Tavern Helper runs
 // this script in an iframe, so these selectors are always resolved in parent.
-const HOST_CANDIDATES = ['#extensions_settings2', '#extensions_settings'];
+const HOST_CANDIDATES = ['#extensions_settings2', '#extensions_settings', '.extensions_settings'];
 
 function doc() { return getHostDocument(); }
 function el(id) { return doc()?.getElementById?.(id) || null; }
@@ -58,6 +58,7 @@ function createRoot(version = '') {
   const root = d.createElement('div');
   root.id = ROOT_ID;
   root.className = 'inline-drawer qbcc-collapsed';
+  root.dataset.qbccVersion = String(version || '');
   root.innerHTML = `
 <div class="inline-drawer-toggle inline-drawer-header qbcc-runtime-header">
   <div class="qbcc-runtime-title"><span>QBCC Runtime</span><span class="qbcc-runtime-version">v${String(version || '')}</span></div>
@@ -159,7 +160,7 @@ export function installSettingsPanel({ toast, version = '' } = {}) {
     // Match the normal SillyTavern settings drawers (Kaiz/TTS/Regex style).
     host.appendChild(root);
     bind(root);
-    console.info('[QBCC Runtime] settings section mounted in parent SillyTavern Extensions panel');
+    console.info(`[QBCC Runtime] settings section mounted v${version} in parent SillyTavern Extensions panel`, host);
     return true;
   }
 

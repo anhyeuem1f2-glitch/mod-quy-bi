@@ -31,8 +31,15 @@ for path in order:
     text=re.sub(r'^export\s*\{[^}]*\};?\s*$','',text,flags=re.M)
     rel=path.relative_to(ROOT).as_posix()
     chunks.append(f"\n/* ===== {rel} ===== */\n{text.strip()}\n")
-out="// QBCC Runtime Companion self-contained bundle v0.4.0\n(()=>{\n'use strict';\n"+''.join(chunks)+"\n})();\n"
-(ROOT/'dist'/'qbcc-runtime.js').write_text(out,encoding='utf-8')
+config=(SRC/'config.js').read_text(encoding='utf-8')
+vm=re.search(r"VERSION\s*=\s*['\"]([^'\"]+)['\"]", config)
+version=vm.group(1) if vm else 'dev'
+out=f"// QBCC Runtime Companion self-contained bundle v{version}\n(()=>{{\n'use strict';\n"+''.join(chunks)+"\n})();\n"
+dist=ROOT/'dist'
+dist.mkdir(exist_ok=True)
+(dist/'qbcc-runtime.js').write_text(out,encoding='utf-8')
+(dist/f'qbcc-runtime-v{version}.js').write_text(out,encoding='utf-8')
 print('Bundled order:')
 for p in order: print(' -',p.relative_to(ROOT))
+print('version',version)
 print('bytes',len(out.encode('utf-8')))

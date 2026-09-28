@@ -18,7 +18,8 @@ import { installSettingsPanel, focusSettingsPanel } from './ui/settingsPanel.js'
 import { installInputAuthorityGate } from './core/inputAuthority.js';
 import { exposeHostGlobal, getHostWindow, isTavernHelperIframe } from './adapters/host.js';
 
-const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION__';
+const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V041__';
+const LEGACY_INSTANCE_KEYS = ['__QBCC_RUNTIME_COMPANION__'];
 
 class QbccRuntimeCompanion {
   constructor(api = createTavernApi()) {
@@ -244,7 +245,17 @@ class QbccRuntimeCompanion {
   }
 }
 
-console.info(`[QBCC Runtime] module evaluated v${VERSION}; iframe=${isTavernHelperIframe()}`);
+console.info(`[QBCC Runtime] BOOT v${VERSION}; iframe=${isTavernHelperIframe()}; host=${getHostWindow() === globalThis ? 'self' : 'parent'}`);
+
+// Do not let an older iframe-only runtime mask a new release. A hard page reload
+// clears old listeners; here we at least supersede stale public/instance markers.
+try {
+  const hw = getHostWindow();
+  for (const k of LEGACY_INSTANCE_KEYS) {
+    if (hw?.[k] && hw[k] !== hw[INSTANCE_KEY]) hw[k].__qbccSuperseded = true;
+  }
+  if (hw?.QBCC_RUNTIME && hw.QBCC_RUNTIME.version !== VERSION) hw.QBCC_RUNTIME = undefined;
+} catch {}
 
 const hostWindow = getHostWindow();
 const existingInstance = (() => {
