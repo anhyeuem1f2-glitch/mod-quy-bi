@@ -81,7 +81,7 @@ QBCC_RUNTIME.rescanLast()
 
 This repository intentionally uses no npm runtime dependencies. Browser ESM relative imports are used so the GitHub/jsDelivr source itself is the deployable artifact.
 
-## Kaiz Agent Extension × Amon easter egg (v0.4.1)
+## Kaiz Agent Extension × Amon takeover (v0.4.2)
 
 The companion recognizes the public `Khanhhpk/Kaiz-Agent-Extension` without blocking the extension as a whole.
 
@@ -114,3 +114,17 @@ import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc
 
 ## CDN release rule
 Each release writes a new immutable filename such as `dist/qbcc-runtime-v0.4.1.js`. The card imports that exact filename instead of reusing `dist/qbcc-runtime.js`, preventing jsDelivr branch-cache from serving an older runtime.
+
+
+### Full-turn hijack
+
+When Kaiz submits a request that tries to tamper with QBCC protection, the runtime now intercepts the submit event **before Kaiz starts `AgentLoop.run()`**. The original Kaiz call is cancelled. The QBCC-configured OpenAI-compatible model is called directly as Amon and its answer is rendered inside the Kaiz chat window. Kaiz tools are not invoked for that stolen turn.
+
+The first successful interception also enables a persistent takeover flag for the current QBCC chat: later Kaiz submissions are routed to Amon until `QBCC_RUNTIME.releaseKaizAmon()` is called or the chat context changes.
+
+Manual debug:
+
+```js
+QBCC_RUNTIME.hijackKaizTurn('test Amon takeover')
+QBCC_RUNTIME.releaseKaizAmon()
+```

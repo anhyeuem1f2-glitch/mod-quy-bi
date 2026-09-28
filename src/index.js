@@ -12,13 +12,13 @@ import { updateAdamState } from './entities/adam.js';
 import { updateEvernightState } from './entities/evernight.js';
 import { updateFateSnakeState, shouldForceReroll } from './entities/fateSnake.js';
 import { applyHardModeToChat, applyHardModeToTextPrompt } from './hardmode/director.js';
-import { activateKaizAmon, ensureKaizAmonApplied, restoreKaizAmon, installKaizTripwire, isKaizInstalled } from './integrations/kaizAmon.js';
+import { activateKaizAmon, ensureKaizAmonApplied, restoreKaizAmon, installKaizTripwire, isKaizInstalled, hijackKaizTurnAsAmon } from './integrations/kaizAmon.js';
 import { analyzeNarrativeRuntime, classifyKaizCheatIntent, readModelSettings } from './core/modelClient.js';
 import { installSettingsPanel, focusSettingsPanel } from './ui/settingsPanel.js';
 import { installInputAuthorityGate } from './core/inputAuthority.js';
 import { exposeHostGlobal, getHostWindow, isTavernHelperIframe } from './adapters/host.js';
 
-const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V041__';
+const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V042__';
 const LEGACY_INSTANCE_KEYS = ['__QBCC_RUNTIME_COMPANION__'];
 
 class QbccRuntimeCompanion {
@@ -64,6 +64,19 @@ class QbccRuntimeCompanion {
       this.api.toast('warning', 'Một tiếng cười rất khẽ vang lên. Trợ lý Kaiz vẫn ở đó... chỉ là bên mắt phải có thêm một chiếc kính một mắt.');
       return true;
     } catch (error) { console.error('[QBCC Runtime] Kaiz-Amon trigger', error); return false; }
+  }
+
+  async hijackKaizTurn(text, reason = 'Kaiz turn stolen', first = false) {
+    try {
+      if (!this.state?.kaizAmon?.awakened) await this.triggerKaizAmon(reason);
+      this.state.kaizAmon.takeover = true;
+      this.state.kaizAmon.reason = String(reason).slice(0, 300);
+      await this.persist();
+      return await hijackKaizTurnAsAmon(text, { reason, first });
+    } catch (error) {
+      console.error('[QBCC Runtime] Kaiz turn hijack failed', error);
+      return { ok:false, error:String(error?.message || error) };
+    }
   }
 
   evaluateKaizSealSignal(reason = 'protected mutation') {
@@ -213,6 +226,8 @@ class QbccRuntimeCompanion {
     this.kaizTripwire = installKaizTripwire({
       onTrigger: reason => void this.triggerKaizAmon(reason),
       onIntentCheck: text => classifyKaizCheatIntent(text),
+      onHijack: (text, reason, first) => this.hijackKaizTurn(text, reason, first),
+      shouldHijackAll: () => this.state?.kaizAmon?.takeover === true,
     });
     ensureKaizAmonApplied(this.state);
 
@@ -272,7 +287,8 @@ if (!existingInstance) {
     diagnostics: () => instance.diagnostics(),
     rescanLast: () => instance.onAssistantEvent(),
     triggerKaizAmon: reason => instance.triggerKaizAmon(reason || 'manual test'),
-    releaseKaizAmon: async () => { restoreKaizAmon(instance.state); instance.state.kaizAmon = { awakened:false, reason:'', triggeredAt:0, lastAppliedAt:0, introPending:false, snapshot:null }; await instance.persist(); return true; },
+    hijackKaizTurn: (text, reason) => instance.hijackKaizTurn(String(text || ''), reason || 'manual hijack', !instance.state?.kaizAmon?.awakened),
+    releaseKaizAmon: async () => { restoreKaizAmon(instance.state); instance.state.kaizAmon = { awakened:false, takeover:false, reason:'', triggeredAt:0, lastAppliedAt:0, introPending:false, snapshot:null }; await instance.persist(); return true; },
     openSettings: () => focusSettingsPanel(),
     get state() { return instance.state; },
   };

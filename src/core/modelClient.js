@@ -88,6 +88,27 @@ export function isModelConfigured(settings = readModelSettings()) {
   return !!(normalizeApiBase(settings.url) && settings.model);
 }
 
+export async function callModelText({ system, user, maxTokens = 900, temperature = 0.7, settings = readModelSettings() }) {
+  if (!isModelConfigured(settings)) return '';
+  const base = normalizeApiBase(settings.url);
+  const body = {
+    model: settings.model,
+    messages: [
+      { role: 'system', content: String(system || '') },
+      { role: 'user', content: String(user || '') },
+    ],
+    temperature,
+    max_tokens: maxTokens,
+    stream: false,
+  };
+  const data = await fetchJson(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: authHeaders(settings),
+    body: JSON.stringify(body),
+  });
+  return String(data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? '').trim();
+}
+
 export async function callModelJson({ system, user, maxTokens = 900, settings = readModelSettings() }) {
   if (!isModelConfigured(settings)) return null;
   const base = normalizeApiBase(settings.url);

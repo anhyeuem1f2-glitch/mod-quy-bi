@@ -9,7 +9,7 @@ export function defaultRuntimeState() {
     evernight: { presence: 'absent', power: 'none', active: false },
     fateSnake: { presence: 'absent', power: 'none', active: false },
     reroll: { messageId: -1, count: 0 },
-    kaizAmon: { awakened: false, reason: '', triggeredAt: 0, lastAppliedAt: 0, introPending: false, snapshot: null },
+    kaizAmon: { awakened: false, takeover: false, reason: '', triggeredAt: 0, lastAppliedAt: 0, introPending: false, snapshot: null },
     diagnostics: [],
   };
 }
