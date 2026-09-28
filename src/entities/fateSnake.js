@@ -4,6 +4,8 @@ export function updateFateSnakeState(current, block) {
     presence: String(block.presence || current.presence || 'absent'),
     power: String(block.power || current.power || 'none'),
     active: block.active === true,
+    triggerQuote: String(block.trigger_quote || block.triggerQuote || current.triggerQuote || '').slice(0, 240),
+    actor: String(block.actor || block.entity || current.actor || '').slice(0, 80),
   };
 }
 

@@ -7,18 +7,20 @@ import { filterLoreArrays } from './core/loreFirewall.js';
 import { scanEntityMentions } from './core/presence.js';
 import { parseRuntimeBlocks, stripRuntimeBlocks } from './core/tags.js';
 import { readStoredState, writeStoredState } from './core/runtimeState.js';
-import { updateAmonState } from './entities/amon.js';
-import { updateAdamState } from './entities/adam.js';
+import { updateAmonState, resolveAmonTheft } from './entities/amon.js';
+import { updateAdamState, isAdamAuthoringActive } from './entities/adam.js';
 import { updateEvernightState } from './entities/evernight.js';
 import { updateFateSnakeState, shouldForceReroll } from './entities/fateSnake.js';
 import { applyHardModeToChat, applyHardModeToTextPrompt } from './hardmode/director.js';
 import { activateKaizAmon, ensureKaizAmonApplied, restoreKaizAmon, installKaizTripwire, installKaizDeepHijack, isKaizInstalled, hijackKaizTurnAsAmon } from './integrations/kaizAmon.js';
-import { analyzeNarrativeRuntime, classifyKaizCheatIntent, readModelSettings } from './core/modelClient.js';
+import { analyzeNarrativeRuntime, classifyKaizCheatIntent, planAmonTheft, planAdamInfluence, readModelSettings } from './core/modelClient.js';
 import { installSettingsPanel, focusSettingsPanel } from './ui/settingsPanel.js';
 import { installInputAuthorityGate } from './core/inputAuthority.js';
+import { installMainEntityAuthorityGate } from './integrations/entityAuthority.js';
+import { armFateViewportReroll } from './integrations/fateViewport.js';
 import { exposeHostGlobal, getHostWindow, isTavernHelperIframe } from './adapters/host.js';
 
-const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V045__';
+const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V046__';
 const LEGACY_INSTANCE_KEYS = [
   '__QBCC_RUNTIME_COMPANION__',
   '__QBCC_RUNTIME_COMPANION_V040__',
@@ -26,12 +28,13 @@ const LEGACY_INSTANCE_KEYS = [
   '__QBCC_RUNTIME_COMPANION_V042__',
   '__QBCC_RUNTIME_COMPANION_V043__',
   '__QBCC_RUNTIME_COMPANION_V044__',
+  '__QBCC_RUNTIME_COMPANION_V045__',
 ];
 
 function disposeLegacyRuntime(instance, key = 'legacy') {
   if (!instance || typeof instance !== 'object') return;
   try { instance.__qbccSuperseded = true; } catch {}
-  for (const fn of ['stopSettingsPanel', 'stopInputAuthority', 'stopRedactor']) {
+  for (const fn of ['stopSettingsPanel', 'stopInputAuthority', 'stopEntityAuthority', 'stopFateViewport', 'stopRedactor']) {
     try { if (typeof instance[fn] === 'function') instance[fn](); } catch {}
   }
   try { instance.kaizTripwire?.stop?.(); } catch {}
@@ -72,6 +75,8 @@ class QbccRuntimeCompanion {
     this.lastSealIntervention = 0;
     this.stopSettingsPanel = () => {};
     this.stopInputAuthority = () => {};
+    this.stopEntityAuthority = () => {};
+    this.stopFateViewport = () => {};
   }
 
   refreshContext() {
@@ -82,6 +87,102 @@ class QbccRuntimeCompanion {
   }
 
   async persist() { await writeStoredState(this.api, this.state); }
+
+  shouldHoldMainEntityTurn() {
+    try {
+      this.refreshContext();
+      if (!isHardMode(this.difficulty)) return false;
+      const amon = resolveAmonTheft(this.state?.amon, this.statData);
+      return ['steal_input','steal_narrative'].includes(amon.mode) || isAdamAuthoringActive(this.state?.adam);
+    } catch { return false; }
+  }
+
+  async planMainEntityTurn(originalInput) {
+    this.refreshContext();
+    if (!isHardMode(this.difficulty)) return { visibleInput: originalInput };
+    const context = this.api.getRecentChatText?.(10) || '';
+    const amonEffect = resolveAmonTheft(this.state?.amon, this.statData);
+    const amonActive = ['steal_input','steal_narrative'].includes(amonEffect.mode);
+    const adamActive = isAdamAuthoringActive(this.state?.adam);
+
+    const [amonPlan, adamPlan] = await Promise.all([
+      amonActive ? planAmonTheft({ input: originalInput, context, amon:this.state.amon, effect:amonEffect, difficulty:this.difficulty }) : Promise.resolve(null),
+      adamActive ? planAdamInfluence({ input: originalInput, context, adam:this.state.adam, difficulty:this.difficulty }) : Promise.resolve(null),
+    ]);
+
+    let visibleInput = originalInput;
+    if (amonActive) {
+      const plan = amonPlan || {
+        theft: amonEffect.mode === 'steal_narrative' ? 'full' : 'partial',
+        visible_input: '…',
+        stolen_information: originalInput,
+        directive: 'Exploit the stolen intention before the MC can execute it.',
+        reason: 'fallback after Amon won the theft contest',
+      };
+      visibleInput = String(plan.visible_input || '…');
+      this.state.amon.pendingTheft = {
+        original: String(originalInput).slice(0, 7000),
+        visible: visibleInput.slice(0, 7000),
+        stolen: String(plan.stolen_information || '').slice(0, 1800),
+        directive: String(plan.directive || '').slice(0, 1800),
+        theft: String(plan.theft || 'partial'),
+        reason: String(plan.reason || '').slice(0, 260),
+        createdAt: Date.now(),
+      };
+      console.info('[QBCC Runtime] AMON INPUT THEFT planned before main send', { visibleInput, plan:this.state.amon.pendingTheft });
+    }
+
+    if (adamActive) {
+      this.state.adam.pendingDirective = adamPlan
+        ? { directive:String(adamPlan.directive || '').slice(0,1800), reason:String(adamPlan.reason || '').slice(0,260), createdAt:Date.now() }
+        : { directive:String(this.state.adam.directive || 'Arrange subtle, causally plausible circumstances favorable to Adam.').slice(0,1800), reason:'fallback planner', createdAt:Date.now() };
+      console.info('[QBCC Runtime] ADAM HIDDEN SYSTEM directive planned before main send', this.state.adam.pendingDirective);
+    }
+
+    await this.persist();
+    return { visibleInput };
+  }
+
+  clearTurnAuthorityPayloads() {
+    try { if (this.state?.amon) this.state.amon.pendingTheft = null; } catch {}
+    try { if (this.state?.adam) this.state.adam.pendingDirective = null; } catch {}
+  }
+
+  armFateViewport(messageId) {
+    try { this.stopFateViewport?.(); } catch {}
+    this.stopFateViewport = () => {};
+    const fs = this.state?.fateSnake;
+    if (!isHardMode(this.difficulty) || !shouldForceReroll(fs)) return false;
+    const quote = String(fs.triggerQuote || '').trim();
+    if (!quote) {
+      console.warn('[QBCC Runtime] Fate Snake active but no trigger_quote was classified; viewport reroll not armed');
+      return false;
+    }
+    fs.pendingMessageId = messageId;
+    const runtime = this;
+    this.stopFateViewport = armFateViewportReroll({
+      messageId,
+      triggerQuote: quote,
+      delayMs: 10000,
+      onVisible: ({ delayMs }) => {
+        console.info(`[QBCC Runtime] FATE LINE ENTERED VIEWPORT; reroll armed in ${delayMs}ms`, { messageId, quote });
+      },
+      onFire: async () => {
+        if (runtime.__qbccSuperseded) return;
+        runtime.refreshContext();
+        if (runtime.state?.fateSnake?.pendingMessageId !== messageId) return;
+        if (runtime.state.reroll.messageId !== messageId) runtime.state.reroll = { messageId, count:0 };
+        if (runtime.state.reroll.count >= 1) return;
+        runtime.state.reroll.count += 1;
+        runtime.state.fateSnake.active = false;
+        runtime.state.fateSnake.pendingMessageId = -1;
+        await runtime.persist();
+        console.info('[QBCC Runtime] FATE REVERSAL executing delayed reroll', { messageId, quote });
+        await runtime.api.reroll();
+      },
+    });
+    return true;
+  }
 
   sanitizePromptChat(chat) {
     if (!Array.isArray(chat)) return;
@@ -191,16 +292,35 @@ class QbccRuntimeCompanion {
     let blocks = parseRuntimeBlocks(text);
     const mentions = scanEntityMentions(text);
 
-    // In Hard/Nightmare, the optional external model can classify entity presence/form/power
-    // when the main RP model omitted QB_RUNTIME telemetry or left Amon unresolved.
+    // Hard/Nightmare always asks the configured QBCC model to audit the final
+    // narrative. This is intentionally independent from optional QB_RUNTIME
+    // telemetry so Fate Snake trigger_quote and untagged Amon/Adam authority
+    // use cannot be skipped merely because some other runtime block existed.
     if (isHardMode(this.difficulty)) {
-      const needsModelScan = !blocks.length || (mentions.amon?.likelyOnScene && !blocks.some(b => /amon|阿蒙/i.test(String(b.entity || ''))));
-      if (needsModelScan) {
-        try {
-          const inferred = await analyzeNarrativeRuntime(text);
-          if (inferred?.length) blocks = [...blocks, ...inferred];
-        } catch (error) { console.debug('[QBCC Runtime] external analyzer skipped:', error?.message || error); }
-      }
+      try {
+        const inferred = await analyzeNarrativeRuntime(text);
+        if (inferred?.length) {
+          const keyed = new Map();
+          for (const b of blocks) keyed.set(String(b?.entity || '').toLowerCase(), { ...b });
+          for (const inf of inferred) {
+            const key = String(inf?.entity || '').toLowerCase();
+            const prev = keyed.get(key);
+            if (!prev) { keyed.set(key, { ...inf }); continue; }
+            // Preserve explicit card telemetry where supplied, but let the
+            // independent model fill fields that telemetry omitted. Fate
+            // trigger_quote is always taken from the model because it must be
+            // an exact visible narrative substring for viewport anchoring.
+            keyed.set(key, {
+              ...prev,
+              form: (!prev.form || prev.form === 'unknown') ? (inf.form || prev.form) : prev.form,
+              attitude: (!prev.attitude || prev.attitude === 'unknown') ? (inf.attitude || prev.attitude) : prev.attitude,
+              trigger_quote: inf.trigger_quote || prev.trigger_quote || '',
+              actor: inf.actor || prev.actor || inf.entity || prev.entity,
+            });
+          }
+          blocks = [...keyed.values()];
+        }
+      } catch (error) { console.debug('[QBCC Runtime] external analyzer skipped:', error?.message || error); }
     }
 
     for (const block of blocks) {
@@ -220,13 +340,17 @@ class QbccRuntimeCompanion {
     await this.persist();
 
     if (isHardMode(this.difficulty) && shouldForceReroll(this.state.fateSnake)) {
-      if (this.state.reroll.messageId !== id) this.state.reroll = { messageId: id, count: 0 };
-      if (this.state.reroll.count < 1) {
-        this.state.reroll.count += 1;
-        this.state.fateSnake.active = false; // consume once; new generation may reactivate it.
-        await this.persist();
-        setTimeout(() => this.api.reroll(), 80);
-      }
+      // Do NOT reroll immediately. The player is allowed to keep reading. A
+      // DOM sentinel is anchored to the exact model-classified ability line;
+      // only when that line enters the viewport does a 10-second countdown start.
+      this.armFateViewport(id);
+    }
+
+    // Amon/Adam turn payloads are one-turn authorities. Once the response that
+    // consumed them exists, remove the private original/directive from runtime state.
+    if (this.state?.amon?.pendingTheft || this.state?.adam?.pendingDirective) {
+      this.clearTurnAuthorityPayloads();
+      await this.persist();
     }
   }
 
@@ -250,6 +374,7 @@ class QbccRuntimeCompanion {
   };
 
   onChatChanged = async () => {
+    try { this.stopFateViewport?.(); this.stopFateViewport = () => {}; } catch {}
     try {
       if (this.__qbccSuperseded) return; restoreKaizAmon(this.state); } catch {}
     this.state = readStoredState(this.api);
@@ -262,6 +387,14 @@ class QbccRuntimeCompanion {
     // Settings + deep Kaiz interception must exist immediately, before MVU boot finishes.
     this.stopSettingsPanel = installSettingsPanel({ toast: (kind, msg) => this.api.toast(kind, msg), version: VERSION });
     this.stopInputAuthority = installInputAuthorityGate({ onSanitized: () => this.api.toast('warning', 'Đã lọc lệnh can thiệp trực tiếp khỏi input.') });
+    // Main RP gate: Amon/Adam get a model-planned turn BEFORE SillyTavern saves
+    // the user message. Amon can visibly remove part/all of the typed input;
+    // Adam writes only a hidden SYSTEM-role directive.
+    this.stopEntityAuthority = installMainEntityAuthorityGate({
+      shouldHold: () => this.shouldHoldMainEntityTurn(),
+      inspectTurn: text => this.planMainEntityTurn(text),
+      onError: error => console.warn('[QBCC Runtime] entity authority pre-send fallback', error),
+    });
     // Install the model-first Kaiz input gate BEFORE waiting for MVU. The user's raw
     // Kaiz input is held here until the QBCC model returns allow/hijack; AgentLoop never
     // gets a chance to think or call tools before this verdict.
@@ -276,7 +409,7 @@ class QbccRuntimeCompanion {
       onIntentCheck: text => classifyKaizCheatIntent(text),
       shouldHijackAll: () => this.state?.kaizAmon?.takeover === true,
     });
-    console.info(`[QBCC Runtime] settings UI + MODEL-FIRST pre-Kaiz gate + deep hooks installed; waiting for MVU...`);
+    console.info(`[QBCC Runtime] settings UI + MAIN ENTITY AUTHORITY + MODEL-FIRST pre-Kaiz gate + deep hooks installed; waiting for MVU...`);
     await this.api.waitForMvu();
     this.refreshContext();
     this.state = readStoredState(this.api);
@@ -304,6 +437,8 @@ class QbccRuntimeCompanion {
       difficulty: this.difficulty,
       statLoaded: !!Object.keys(this.statData || {}).length,
       kaizInstalled: isKaizInstalled(),
+      mainEntityAuthorityArmed: !!this.stopEntityAuthority,
+      fateViewportControllerArmed: typeof this.stopFateViewport === 'function',
       kaizPreflightModelFirst: !!this.kaizTripwire,
       deepKaizHijackArmed: !!getHostWindow()?.fetch?.__qbccKaizDeepHijack,
       kaizRegistryGuardArmed: !!getHostWindow()?.KaizRegistry?.executeTool?.__qbccDeepGuard,
@@ -330,7 +465,7 @@ try {
 
 const hostWindow = getHostWindow();
 purgeLegacyRuntimes(hostWindow);
-console.info(`[QBCC Runtime] BOOT v${VERSION}; legacy runtimes purged; MODEL-FIRST Kaiz input gate + deep fetch/tool backstops armed`);
+console.info(`[QBCC Runtime] BOOT v${VERSION}; legacy runtimes purged; Amon/Adam SYSTEM authority + viewport Fate reroll + MODEL-FIRST Kaiz gate armed`);
 const existingInstance = (() => {
   try { return hostWindow?.[INSTANCE_KEY] || globalThis[INSTANCE_KEY] || null; } catch { return globalThis[INSTANCE_KEY] || null; }
 })();

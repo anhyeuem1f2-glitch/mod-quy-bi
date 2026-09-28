@@ -1,4 +1,4 @@
-export const VERSION = '0.4.5';
+export const VERSION = '0.4.6';
 export const CHAT_STATE_KEY = 'qbcc_runtime_companion';
 export const HARD_DIFFICULTIES = new Set(['Khó', 'Ác mộng']);
 
@@ -36,6 +36,8 @@ export const LIMITS = {
   inputChars: 6000,
   runtimeBlocksPerMessage: 8,
   rerollsPerMessage: 1,
+  fateViewportDelayMs: 10000,
+  entityPlanChars: 7000,
 };
 
 export const REROLL_COMMANDS = ['/regenerate'];

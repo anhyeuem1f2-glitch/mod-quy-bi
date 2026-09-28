@@ -34,3 +34,10 @@ Use `power=fate_reverse`, `active=true`. The companion consumes the tag and requ
 ## Kaiz-Amon takeover
 
 This is an anti-cheat easter egg rather than an in-fiction Amon presence tag. It does not force Amon into the main story. It affects the Kaiz technical assistant when Kaiz is used to tamper with protected QBCC state/assets.
+
+
+## v0.4.6 authority mechanics
+
+- Amon Theft is resolved before the native main-chat send. The auxiliary QBCC model chooses partial/full theft; the visible user message is rewritten before SillyTavern persists it. Removed text is retained only in a hidden system-authority payload.
+- Adam Authoring uses a per-turn auxiliary-model plan injected as SYSTEM role after the visible user input, with protected MVU syntax stripped.
+- Fate Snake reversal uses model-returned `trigger_quote`; a viewport sentinel starts a 10-second delayed `/regenerate` only after that exact ability line becomes visible.

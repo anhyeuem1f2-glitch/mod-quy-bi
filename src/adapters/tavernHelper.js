@@ -1,5 +1,5 @@
 import { REROLL_COMMANDS } from '../config.js';
-import { getHostGlobal } from './host.js';
+import { getHostGlobal, getHostWindow } from './host.js';
 
 function maybe(name) { return globalThis[name]; }
 
@@ -51,12 +51,37 @@ export function createTavernApi() {
       for (const key of keys) if (this.onEvent(key, handler, 'on')) return key;
       return null;
     },
+    getRecentChatText(limit = 10) {
+      try {
+        const ctx = getHostWindow()?.SillyTavern?.getContext?.();
+        const chat = Array.isArray(ctx?.chat) ? ctx.chat : [];
+        return chat.slice(-Math.max(1, Number(limit) || 10)).map((m, i) => {
+          const role = m?.is_user ? 'USER' : (m?.is_system ? 'SYSTEM' : 'ASSISTANT');
+          return `${role}: ${String(m?.mes || '').slice(0, 5000)}`;
+        }).join('\n\n');
+      } catch { return ''; }
+    },
     async reroll() {
-      const trigger = maybe('triggerSlash');
-      if (typeof trigger !== 'function') return false;
-      for (const cmd of REROLL_COMMANDS) {
-        try { await trigger(cmd); return true; } catch {}
+      const trigger = maybe('triggerSlash') || getHostWindow()?.TavernHelper?.triggerSlash;
+      if (typeof trigger === 'function') {
+        for (const cmd of REROLL_COMMANDS) {
+          try { await trigger(cmd); return true; } catch {}
+        }
       }
+      // Direct SillyTavern fallback. The exported context exposes generate; the
+      // standard generation type for this operation is `regenerate`.
+      try {
+        const ctx = getHostWindow()?.SillyTavern?.getContext?.();
+        if (typeof ctx?.generate === 'function') { await ctx.generate('regenerate'); return true; }
+      } catch {}
+      // Last UI fallback: current ST binds Ctrl+Enter/regenerate through the
+      // normal send stack. Prefer API paths above; this is only a final escape.
+      try {
+        const d = getHostWindow()?.document;
+        const evt = new (getHostWindow()?.KeyboardEvent || KeyboardEvent)('keydown', { key:'Enter', code:'Enter', ctrlKey:true, bubbles:true, cancelable:true });
+        (d?.getElementById?.('send_textarea') || d?.body)?.dispatchEvent?.(evt);
+        return true;
+      } catch {}
       return false;
     },
     toast(kind, message) {

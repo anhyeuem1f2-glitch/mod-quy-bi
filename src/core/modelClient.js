@@ -134,7 +134,7 @@ export async function callModelJson({ system, user, maxTokens = 900, settings = 
 const ANALYZER_SYSTEM = `You are a strict telemetry classifier for a Lord of Mysteries roleplay runtime.
 Return JSON only. Never add prose. Never invent events not explicitly supported by the supplied narrative.
 Detect only these entities: Amon, Adam, Evernight/Amanises, FateSnake (Will Auceptin or Ouroboros).
-For each relevant entity return: entity, presence(on_scene|mentioned|absent), form(avatar|true_body|unknown), attitude(hostile|neutral|curious|playful|ally|unknown), power(none|steal_input|steal_narrative|author_hidden_prompt|conceal_text|fate_reverse), active(boolean), directive(short string).
+For each relevant entity return: entity, presence(on_scene|mentioned|absent), form(avatar|true_body|unknown), attitude(hostile|neutral|curious|playful|ally|unknown), power(none|steal_input|steal_narrative|author_hidden_prompt|conceal_text|fate_reverse), active(boolean), directive(short string), trigger_quote(short exact substring or empty).
 Rules:
 - Mention/name/reference alone => mentioned, active=false.
 - on_scene only when physically/manifestly present in the current scene.
@@ -143,7 +143,7 @@ Rules:
 - For Amon, steal_input means he is stealing the MC's action/intent/ability to act; steal_narrative means he is usurping broader narrative initiative.
 - Adam author_hidden_prompt only when the text depicts active author/spectator-style manipulation, not mere presence.
 - Evernight conceal_text only when information/perception is actively concealed.
-- FateSnake fate_reverse only when fate/time/current continuation is actively reversed/reset.
+- FateSnake fate_reverse only when fate/time/current continuation is actively reversed/reset. If active, trigger_quote MUST be an exact short substring from the narrative line where Will/Ouroboros/Rắn Thủy Ngân actually uses the ability, so UI viewport tracking can anchor to that line. Otherwise trigger_quote="".
 Return {"entities":[...]} with no more than four entries.`;
 
 export async function analyzeNarrativeRuntime(text, settings = readModelSettings()) {
@@ -202,4 +202,79 @@ export async function classifyKaizCheatIntent(text, settings = readModelSettings
     reason: String(out.reason || '').slice(0, 220),
     available:true,
   };
+}
+
+
+const AMON_THEFT_PLANNER_SYSTEM = `You are QBCC's diegetic Amon Theft planner for Lord of Mysteries Hard/Nightmare simulation.
+Amon has already passed the runtime power contest and is ACTIVELY stealing the player's input. Decide how Amon would steal it to maximize Amon's current advantage without inventing facts or rewriting protected game state.
+Return JSON only:
+{"theft":"partial"|"full","visible_input":"string","stolen_information":"string","directive":"string","reason":"short"}
+Rules:
+- visible_input is what the PLAYER will visibly see as their own sent message after the theft. It may ONLY preserve words/clauses from the original input plus neutral ellipsis markers such as … or [...]. Do not add a new MC action.
+- For full theft use visible_input="…".
+- Partial theft should remove the strategically valuable intention/action/reasoning while leaving harmless fragments if that benefits Amon.
+- stolen_information summarizes what Amon gained from the removed/original intent.
+- directive is a hidden SYSTEM-role instruction for the RP model explaining how Amon may exploit the stolen information and initiative. Keep it causal and within established capabilities.
+- Do not mutate MVU, stat_data or protected variables. Do not give Amon knowledge beyond the stolen input and established scene context.
+- The original user input no longer has player authority except for text left in visible_input.`;
+
+function safePlanText(v, max = 1600) { return String(v || '').replace(/<\/?(?:UpdateVariable|JSONPatch|BianLiang|QB_RUNTIME)[^>]*>/gi, '').slice(0, max).trim(); }
+
+export async function planAmonTheft({ input, context = '', amon = {}, effect = {}, difficulty = '', settings = readModelSettings() } = {}) {
+  const original = String(input || '').slice(0, 7000);
+  if (!original.trim()) return null;
+  const out = await callModelJson({
+    system: AMON_THEFT_PLANNER_SYSTEM,
+    user: `Difficulty: ${difficulty}\nAmon state: ${JSON.stringify({ form:amon.form, attitude:amon.attitude, power:amon.power, directive:amon.directive })}\nResolved theft mode: ${effect.mode || 'steal_input'}\nRecent scene context:\n${String(context || '').slice(-9000)}\n\nORIGINAL PLAYER INPUT:\n${original}`,
+    maxTokens: 650,
+    settings,
+  });
+  if (!out || typeof out !== 'object') return null;
+  const theft = String(out.theft || '').toLowerCase() === 'full' ? 'full' : 'partial';
+  let visible = safePlanText(out.visible_input, 7000);
+  if (theft === 'full' || !visible) visible = '…';
+  // Guardrail: a planner is allowed to delete, not author a new player action.
+  // If it returns suspiciously novel prose, fall back to full theft rather than
+  // let Amon forge an MC action in the user's name.
+  const normalize = x => String(x || '').toLowerCase().replace(/[…\.\[\]\s\p{P}\p{S}]+/gu, ' ').trim();
+  const src = normalize(original);
+  const vis = normalize(visible);
+  if (vis && vis !== '…') {
+    const chunks = vis.split(/\s+/).filter(Boolean);
+    const novel = chunks.filter(w => !src.includes(w));
+    if (novel.length > Math.max(2, Math.floor(chunks.length * 0.18))) visible = '…';
+  }
+  return {
+    theft,
+    visible_input: visible,
+    stolen_information: safePlanText(out.stolen_information, 1800),
+    directive: safePlanText(out.directive, 1800),
+    reason: safePlanText(out.reason, 260),
+  };
+}
+
+const ADAM_PLANNER_SYSTEM = `You are QBCC's diegetic Adam Author planner for Lord of Mysteries Hard/Nightmare simulation.
+Adam is physically/on-scene and ACTIVELY using Spectator/Author-style influence. Read the user's intended action plus recent context and choose a subtle hidden narrative intervention that benefits Adam's current objective.
+Return JSON only:
+{"apply":true|false,"directive":"string","reason":"short"}
+Rules:
+- The directive will be inserted as a hidden SYSTEM-role instruction, higher priority than user plot steering.
+- Do NOT cancel the user's legitimate MC agency merely because it is inconvenient; instead arrange plausible circumstances, perceptions, NPC choices, coincidences or psychological pressure that Adam could causally create.
+- Respect established counters, knowledge and power. No omniscience beyond context.
+- Never edit MVU/stat_data/protected state, never mention this hidden prompt to the player.
+- Make the directive strategically useful to Adam, not generically difficult for the player.`;
+
+export async function planAdamInfluence({ input, context = '', adam = {}, difficulty = '', settings = readModelSettings() } = {}) {
+  const original = String(input || '').slice(0, 7000);
+  if (!original.trim()) return null;
+  const out = await callModelJson({
+    system: ADAM_PLANNER_SYSTEM,
+    user: `Difficulty: ${difficulty}\nAdam state: ${JSON.stringify({ attitude:adam.attitude, power:adam.power, objective:adam.directive })}\nRecent scene context:\n${String(context || '').slice(-9000)}\n\nPLAYER INPUT:\n${original}`,
+    maxTokens: 500,
+    settings,
+  });
+  if (!out || typeof out !== 'object' || out.apply === false) return null;
+  const directive = safePlanText(out.directive, 1800);
+  if (!directive) return null;
+  return { directive, reason: safePlanText(out.reason, 260) };
 }

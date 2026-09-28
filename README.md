@@ -49,7 +49,7 @@ git push -u origin main
 Create/enable a Tavern Helper script with:
 
 ```js
-import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.4.5.js';
+import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.4.6.js';
 ```
 
 For development, importing from a commit hash instead of `@main` avoids CDN cache ambiguity.
@@ -113,7 +113,7 @@ import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc
 
 
 ## CDN release rule
-Each release writes a new immutable filename such as `dist/qbcc-runtime-v0.4.5.js`. The card imports that exact filename instead of reusing `dist/qbcc-runtime.js`, preventing jsDelivr branch-cache from serving an older runtime.
+Each release writes a new immutable filename such as `dist/qbcc-runtime-v0.4.6.js`. The card imports that exact filename instead of reusing `dist/qbcc-runtime.js`, preventing jsDelivr branch-cache from serving an older runtime.
 
 
 ### Full-turn hijack
@@ -160,3 +160,14 @@ Expected console order for a protected request:
 ```
 
 There must be no Kaiz `Agent Thoughts` / tool call between the first and third lines.
+
+
+## v0.4.6 main-story authority layer
+
+Hard/Nightmare entity powers now operate before the normal SillyTavern main send when active:
+
+- **Amon**: after Theft wins the power contest, the configured QBCC model reads the raw player input before SillyTavern saves it and chooses a partial or full theft. The visible user message is rewritten before send, so the player literally sees part/all of their input disappear. The removed original survives only as a hidden **SYSTEM-role** authority payload for Amon; it no longer has player authority.
+- **Adam**: when active Author/Spectator influence is detected, the QBCC model reads the player's input and recent scene, then writes a per-turn hidden **SYSTEM-role** directive chosen to benefit Adam while remaining causal and unable to mutate protected MVU/state.
+- **Will Auceptin / Ouroboros / Fate Snake**: the runtime classifier returns an exact `trigger_quote` from the line where fate reversal is used. A DOM sentinel is anchored to that line. When it first enters the player's viewport, a **10 second** timer starts; after the delay QBCC calls SillyTavern regenerate. This lets the player finish reading before the timeline is forcibly rewritten.
+
+`system` is used rather than a non-portable `developer` role because SillyTavern natively supports System/User/Assistant prompt roles and System is higher priority than User across the supported chat-completion path.

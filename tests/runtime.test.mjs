@@ -154,3 +154,24 @@ test('preflight does not fail open when model is unavailable on protected mutati
   assert.equal(out.cheat, true);
   assert.equal(out.source, 'local-fallback-after-model-unavailable');
 });
+
+test('v0.4.6 uses system authority payload for stolen Amon input', async () => {
+  const { buildAmonSystemAuthority } = await import('../src/hardmode/director.js');
+  const p = buildAmonSystemAuthority({ amon:{ pendingTheft:{ original:'Tôi chạy khỏi phòng', visible:'…', stolen:'ý định bỏ chạy', directive:'Chặn đường lui', createdAt:Date.now() } } });
+  assert.ok(p.includes('SYSTEM AUTHORITY'));
+  assert.ok(p.includes('ý định bỏ chạy'));
+  assert.ok(p.includes('Visible remainder: …'));
+});
+
+test('Adam dynamic planner directive receives system-role wrapper', async () => {
+  const p = buildAdamHiddenPrompt({ presence:'on_scene', active:true, power:'author_hidden_prompt', directive:'old', pendingDirective:{ directive:'Dẫn cuộc gặp về phía mục tiêu của Adam', createdAt:Date.now() } });
+  assert.ok(p.includes('SYSTEM AUTHORITY'));
+  assert.ok(p.includes('Dẫn cuộc gặp về phía mục tiêu của Adam'));
+});
+
+test('Fate Snake stores exact trigger quote for viewport scheduling', async () => {
+  const { updateFateSnakeState } = await import('../src/entities/fateSnake.js');
+  const s = updateFateSnakeState({}, { entity:'Will Auceptin', presence:'on_scene', active:true, power:'fate_reverse', trigger_quote:'Bánh xe vận mệnh bỗng quay ngược.' });
+  assert.equal(s.triggerQuote, 'Bánh xe vận mệnh bỗng quay ngược.');
+  assert.equal(s.actor, 'Will Auceptin');
+});
