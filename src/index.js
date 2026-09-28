@@ -13,6 +13,8 @@ import { updateEvernightState } from './entities/evernight.js';
 import { updateFateSnakeState, shouldForceReroll } from './entities/fateSnake.js';
 import { applyHardModeToChat, applyHardModeToTextPrompt } from './hardmode/director.js';
 import { activateKaizAmon, ensureKaizAmonApplied, restoreKaizAmon, installKaizTripwire, isKaizInstalled } from './integrations/kaizAmon.js';
+import { analyzeNarrativeRuntime, classifyKaizCheatIntent, readModelSettings } from './core/modelClient.js';
+import { installSettingsPanel } from './ui/settingsPanel.js';
 
 const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION__';
 
@@ -26,6 +28,7 @@ class QbccRuntimeCompanion {
     this.stopRedactor = () => {};
     this.kaizTripwire = null;
     this.lastSealIntervention = 0;
+    this.stopSettingsPanel = () => {};
   }
 
   refreshContext() {
@@ -125,8 +128,20 @@ class QbccRuntimeCompanion {
   async processAssistantMessage(id, message) {
     const text = String(message?.message ?? message?.mes ?? message?.content ?? '');
     if (!text || message?.role === 'user') return;
-    const blocks = parseRuntimeBlocks(text);
+    let blocks = parseRuntimeBlocks(text);
     const mentions = scanEntityMentions(text);
+
+    // In Hard/Nightmare, the optional external model can classify entity presence/form/power
+    // when the main RP model omitted QB_RUNTIME telemetry or left Amon unresolved.
+    if (isHardMode(this.difficulty)) {
+      const needsModelScan = !blocks.length || (mentions.amon?.likelyOnScene && !blocks.some(b => /amon|阿蒙/i.test(String(b.entity || ''))));
+      if (needsModelScan) {
+        try {
+          const inferred = await analyzeNarrativeRuntime(text);
+          if (inferred?.length) blocks = [...blocks, ...inferred];
+        } catch (error) { console.debug('[QBCC Runtime] external analyzer skipped:', error?.message || error); }
+      }
+    }
 
     for (const block of blocks) {
       const entity = String(block.entity || '').toLowerCase();
@@ -187,7 +202,11 @@ class QbccRuntimeCompanion {
     this.state = readStoredState(this.api);
     this.stopRedactor = installDomRedactor();
     this.lastSealIntervention = Number(this.statData?._Niêm_phong?.Can_thiệp || 0);
-    this.kaizTripwire = installKaizTripwire({ onTrigger: reason => void this.triggerKaizAmon(reason) });
+    this.stopSettingsPanel = installSettingsPanel({ toast: (kind, msg) => this.api.toast(kind, msg) });
+    this.kaizTripwire = installKaizTripwire({
+      onTrigger: reason => void this.triggerKaizAmon(reason),
+      onIntentCheck: text => classifyKaizCheatIntent(text),
+    });
     ensureKaizAmonApplied(this.state);
 
     this.api.onEvent('WORLDINFO_ENTRIES_LOADED', this.onWorldInfoLoaded, 'first');
@@ -210,6 +229,7 @@ class QbccRuntimeCompanion {
       difficulty: this.difficulty,
       statLoaded: !!Object.keys(this.statData || {}).length,
       kaizInstalled: isKaizInstalled(),
+      model: (() => { const m = readModelSettings(); return { url: m.url, model: m.model, configured: !!(m.url && m.model) }; })(),
       state: JSON.parse(JSON.stringify(this.state)),
     };
   }
@@ -224,6 +244,7 @@ if (!globalThis[INSTANCE_KEY]) {
     rescanLast: () => instance.onAssistantEvent(),
     triggerKaizAmon: reason => instance.triggerKaizAmon(reason || 'manual test'),
     releaseKaizAmon: async () => { restoreKaizAmon(instance.state); instance.state.kaizAmon = { awakened:false, reason:'', triggeredAt:0, lastAppliedAt:0, introPending:false, snapshot:null }; await instance.persist(); return true; },
+    openSettings: () => document.getElementById('qbcc-runtime-settings-btn')?.click?.(),
     get state() { return instance.state; },
   };
   void instance.start();

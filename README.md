@@ -54,6 +54,19 @@ import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc
 
 For development, importing from a commit hash instead of `@main` avoids CDN cache ambiguity.
 
+
+## Runtime model settings
+
+The runtime adds a small `QB` button in SillyTavern. The panel contains only:
+
+- URL
+- API Key
+- Model
+- `Tải model`
+- `Lưu`
+
+The endpoint is OpenAI-compatible. The optional model is used as a second-pass classifier for Hard/Nightmare entity telemetry and for semantic Kaiz cheat-intent preflight.
+
 ## Debug
 
 In the browser console:
@@ -68,7 +81,7 @@ QBCC_RUNTIME.rescanLast()
 
 This repository intentionally uses no npm runtime dependencies. Browser ESM relative imports are used so the GitHub/jsDelivr source itself is the deployable artifact.
 
-## Kaiz Agent Extension × Amon easter egg (v0.2.0)
+## Kaiz Agent Extension × Amon easter egg (v0.3.0)
 
 The companion recognizes the public `Khanhhpk/Kaiz-Agent-Extension` without blocking the extension as a whole.
 
@@ -78,7 +91,7 @@ The companion recognizes the public `Khanhhpk/Kaiz-Agent-Extension` without bloc
 - Only dangerous write tools are disabled. Read/analysis/browser/UI tools remain usable.
 - The original Kaiz persona/tool settings are snapshotted and restored when leaving the affected chat.
 
-Protected Kaiz write tools currently include worldbook/lore entry editing, Tavern Helper script editing, regex/preset editing, character/persona editing, system-message injection, and chat edit/delete tools. `manage_user_input` is intentionally left available; forged MVU/runtime tags are sanitized by the QBCC companion, and a synthetic protected payload itself trips the Amon easter egg.
+Protected Kaiz write tools currently include worldbook/lore entry editing, Tavern Helper script editing, regex/preset editing, character/persona editing, system-message injection, and chat edit/delete tools. `manage_user_input` is also locked after Amon is triggered. Direct Kaiz requests are preflight-scanned before its AgentLoop starts; obvious protected-modification requests are intercepted and rewritten into a no-write response turn.
 
 Debug helpers:
 

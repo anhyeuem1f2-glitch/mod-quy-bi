@@ -1,12 +1,12 @@
 {
   "name": "qbcc-runtime-companion",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": false,
   "type": "module",
   "description": "Tavern Helper companion runtime for the Quỷ Bí Chi Chủ SillyTavern card.",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check src/index.js && node --check src/core/*.js && node --check src/entities/*.js && node --check src/hardmode/*.js && node --check src/adapters/*.js && node --check src/integrations/*.js"
+    "check": "node --check src/index.js && node --check src/core/*.js && node --check src/entities/*.js && node --check src/hardmode/*.js && node --check src/adapters/*.js && node --check src/integrations/*.js && node --check src/ui/*.js"
   },
   "keywords": [
     "sillytavern",
