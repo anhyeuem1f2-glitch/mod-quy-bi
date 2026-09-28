@@ -49,7 +49,7 @@ git push -u origin main
 Create/enable a Tavern Helper script with:
 
 ```js
-import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime.js';
+import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.4.3.js';
 ```
 
 For development, importing from a commit hash instead of `@main` avoids CDN cache ambiguity.
@@ -81,7 +81,7 @@ QBCC_RUNTIME.rescanLast()
 
 This repository intentionally uses no npm runtime dependencies. Browser ESM relative imports are used so the GitHub/jsDelivr source itself is the deployable artifact.
 
-## Kaiz Agent Extension × Amon takeover (v0.4.2)
+## Kaiz Agent Extension × Amon takeover (v0.4.3)
 
 The companion recognizes the public `Khanhhpk/Kaiz-Agent-Extension` without blocking the extension as a whole.
 
@@ -113,7 +113,7 @@ import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc
 
 
 ## CDN release rule
-Each release writes a new immutable filename such as `dist/qbcc-runtime-v0.4.1.js`. The card imports that exact filename instead of reusing `dist/qbcc-runtime.js`, preventing jsDelivr branch-cache from serving an older runtime.
+Each release writes a new immutable filename such as `dist/qbcc-runtime-v0.4.3.js`. The card imports that exact filename instead of reusing `dist/qbcc-runtime.js`, preventing jsDelivr branch-cache from serving an older runtime.
 
 
 ### Full-turn hijack
@@ -128,3 +128,8 @@ Manual debug:
 QBCC_RUNTIME.hijackKaizTurn('test Amon takeover')
 QBCC_RUNTIME.releaseKaizAmon()
 ```
+
+
+## Clean upgrades
+
+`PUSH_TO_GITHUB.cmd` deletes stale `dist/qbcc-runtime-v*.js` bundles before staging, so the repository keeps only the current versioned bundle plus `qbcc-runtime.js`. Runtime startup also disposes stale parent-window instances and replaces an older settings drawer.

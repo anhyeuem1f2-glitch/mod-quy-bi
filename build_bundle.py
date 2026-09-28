@@ -37,6 +37,9 @@ version=vm.group(1) if vm else 'dev'
 out=f"// QBCC Runtime Companion self-contained bundle v{version}\n(()=>{{\n'use strict';\n"+''.join(chunks)+"\n})();\n"
 dist=ROOT/'dist'
 dist.mkdir(exist_ok=True)
+for old in dist.glob('qbcc-runtime-v*.js'):
+    if old.name != f'qbcc-runtime-v{version}.js':
+        old.unlink(missing_ok=True)
 (dist/'qbcc-runtime.js').write_text(out,encoding='utf-8')
 (dist/f'qbcc-runtime-v{version}.js').write_text(out,encoding='utf-8')
 print('Bundled order:')

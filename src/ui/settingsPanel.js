@@ -153,7 +153,20 @@ export function installSettingsPanel({ toast, version = '' } = {}) {
   function mount() {
     if (disposed) return false;
     const existing = el(ROOT_ID);
-    if (existing) { root = existing; bind(root); return true; }
+    if (existing) {
+      const existingVersion = String(existing.dataset.qbccVersion || '').trim();
+      if (existingVersion && existingVersion !== String(version || '')) {
+        console.info(`[QBCC Runtime] removing stale settings panel v${existingVersion}; current=v${version}`);
+        existing.remove();
+      } else {
+        root = existing;
+        root.dataset.qbccVersion = String(version || '');
+        const versionNode = root.querySelector('.qbcc-runtime-version');
+        if (versionNode) versionNode.textContent = `v${String(version || '')}`;
+        bind(root);
+        return true;
+      }
+    }
     const host = findHost();
     if (!host) return false;
     root = createRoot(version);

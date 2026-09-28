@@ -20,6 +20,7 @@ export function normalizeRuntimeState(value) {
   return {
     ...base,
     ...v,
+    version: VERSION,
     amon: { ...base.amon, ...(v.amon || {}) },
     adam: { ...base.adam, ...(v.adam || {}) },
     evernight: { ...base.evernight, ...(v.evernight || {}) },

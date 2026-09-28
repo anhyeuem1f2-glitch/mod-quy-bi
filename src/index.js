@@ -18,8 +18,43 @@ import { installSettingsPanel, focusSettingsPanel } from './ui/settingsPanel.js'
 import { installInputAuthorityGate } from './core/inputAuthority.js';
 import { exposeHostGlobal, getHostWindow, isTavernHelperIframe } from './adapters/host.js';
 
-const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V042__';
-const LEGACY_INSTANCE_KEYS = ['__QBCC_RUNTIME_COMPANION__'];
+const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V043__';
+const LEGACY_INSTANCE_KEYS = [
+  '__QBCC_RUNTIME_COMPANION__',
+  '__QBCC_RUNTIME_COMPANION_V040__',
+  '__QBCC_RUNTIME_COMPANION_V041__',
+  '__QBCC_RUNTIME_COMPANION_V042__',
+];
+
+function disposeLegacyRuntime(instance, key = 'legacy') {
+  if (!instance || typeof instance !== 'object') return;
+  try { instance.__qbccSuperseded = true; } catch {}
+  for (const fn of ['stopSettingsPanel', 'stopInputAuthority', 'stopRedactor']) {
+    try { if (typeof instance[fn] === 'function') instance[fn](); } catch {}
+  }
+  try { instance.kaizTripwire?.stop?.(); } catch {}
+  try { console.info(`[QBCC Runtime] disposed stale runtime ${key}`); } catch {}
+}
+
+function purgeLegacyRuntimes(hostWindow) {
+  for (const key of LEGACY_INSTANCE_KEYS) {
+    let legacy = null;
+    try { legacy = hostWindow?.[key] || globalThis?.[key] || null; } catch {}
+    if (legacy) disposeLegacyRuntime(legacy, key);
+    try { if (hostWindow && key in hostWindow) delete hostWindow[key]; } catch {}
+    try { if (key in globalThis) delete globalThis[key]; } catch {}
+  }
+  try {
+    const api = hostWindow?.QBCC_RUNTIME;
+    if (api && api.version && api.version !== VERSION) delete hostWindow.QBCC_RUNTIME;
+  } catch {}
+  try {
+    const d = hostWindow?.document;
+    const root = d?.getElementById?.('qbcc-runtime-settings-root');
+    const rv = String(root?.dataset?.qbccVersion || '').trim();
+    if (root && rv && rv !== VERSION) root.remove();
+  } catch {}
+}
 
 class QbccRuntimeCompanion {
   constructor(api = createTavernApi()) {
@@ -98,6 +133,7 @@ class QbccRuntimeCompanion {
 
   onProtectedMutationEvent = () => {
     try {
+      if (this.__qbccSuperseded) return;
       if (!this.kaizTripwire?.isLikelyKaizActive?.()) return;
       setTimeout(() => {
         this.kaizTripwire?.inspectIntegrity?.();
@@ -108,6 +144,7 @@ class QbccRuntimeCompanion {
 
   onPromptReady = ev => {
     try {
+      if (this.__qbccSuperseded) return;
       if (!ev || !Array.isArray(ev.chat)) return;
       this.refreshContext();
       ensureKaizAmonApplied(this.state);
@@ -122,6 +159,7 @@ class QbccRuntimeCompanion {
 
   onTextPromptReady = res => {
     try {
+      if (this.__qbccSuperseded) return;
       if (!res || typeof res.prompt !== 'string') return;
       this.refreshContext();
       ensureKaizAmonApplied(this.state);
@@ -136,6 +174,7 @@ class QbccRuntimeCompanion {
 
   onWorldInfoLoaded = lores => {
     try {
+      if (this.__qbccSuperseded) return;
       this.refreshContext();
       const result = filterLoreArrays(lores, this.difficulty);
       if (result.removed.length) console.info('[QBCC Runtime] lore firewall removed:', result.removed);
@@ -189,6 +228,7 @@ class QbccRuntimeCompanion {
 
   onAssistantEvent = async (...args) => {
     try {
+      if (this.__qbccSuperseded) return;
       let id = -1;
       let message = null;
       for (const a of args) {
@@ -206,7 +246,8 @@ class QbccRuntimeCompanion {
   };
 
   onChatChanged = async () => {
-    try { restoreKaizAmon(this.state); } catch {}
+    try {
+      if (this.__qbccSuperseded) return; restoreKaizAmon(this.state); } catch {}
     this.state = readStoredState(this.api);
     this.refreshContext();
     this.lastSealIntervention = Number(this.statData?._Niêm_phong?.Can_thiệp || 0);
@@ -273,6 +314,8 @@ try {
 } catch {}
 
 const hostWindow = getHostWindow();
+purgeLegacyRuntimes(hostWindow);
+console.info(`[QBCC Runtime] BOOT v${VERSION}; legacy runtimes purged`);
 const existingInstance = (() => {
   try { return hostWindow?.[INSTANCE_KEY] || globalThis[INSTANCE_KEY] || null; } catch { return globalThis[INSTANCE_KEY] || null; }
 })();
