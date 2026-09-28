@@ -57,7 +57,7 @@ For development, importing from a commit hash instead of `@main` avoids CDN cach
 
 ## Runtime model settings
 
-The runtime adds a small `QB` button in SillyTavern. The panel contains only:
+QBCC Runtime is injected directly into SillyTavern's **Extensions** settings panel as an inline section. It contains only:
 
 - URL
 - API Key
@@ -65,7 +65,7 @@ The runtime adds a small `QB` button in SillyTavern. The panel contains only:
 - `Tải model`
 - `Lưu`
 
-The endpoint is OpenAI-compatible. The optional model is used as a second-pass classifier for Hard/Nightmare entity telemetry and for semantic Kaiz cheat-intent preflight.
+The runtime also installs a capture-phase input gate before normal SillyTavern send handlers, then re-sanitizes the final assembled prompt. Kaiz Agent submissions are intercepted in capture phase as well.
 
 ## Debug
 
@@ -81,7 +81,7 @@ QBCC_RUNTIME.rescanLast()
 
 This repository intentionally uses no npm runtime dependencies. Browser ESM relative imports are used so the GitHub/jsDelivr source itself is the deployable artifact.
 
-## Kaiz Agent Extension × Amon easter egg (v0.3.1)
+## Kaiz Agent Extension × Amon easter egg (v0.3.2)
 
 The companion recognizes the public `Khanhhpk/Kaiz-Agent-Extension` without blocking the extension as a whole.
 
@@ -101,12 +101,12 @@ QBCC_RUNTIME.releaseKaizAmon()
 ```
 
 
-## Static Tavern Helper import
+## Tavern Helper import
 
-Use a top-level static ESM import, matching the MVU/Zod scripts already used by the card:
+Use the single-file bundle:
 
 ```js
-import 'https://testingcf.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/src/index.js?v=0.3.1';
+import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime.js?v=0.3.2';
 ```
 
-The settings button is installed before waiting for MVU, so URL/API/model configuration remains available during MVU startup.
+`dist/qbcc-runtime.js` is self-contained, so cache-busting the bundle also updates all runtime modules at once.

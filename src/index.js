@@ -14,7 +14,8 @@ import { updateFateSnakeState, shouldForceReroll } from './entities/fateSnake.js
 import { applyHardModeToChat, applyHardModeToTextPrompt } from './hardmode/director.js';
 import { activateKaizAmon, ensureKaizAmonApplied, restoreKaizAmon, installKaizTripwire, isKaizInstalled } from './integrations/kaizAmon.js';
 import { analyzeNarrativeRuntime, classifyKaizCheatIntent, readModelSettings } from './core/modelClient.js';
-import { installSettingsPanel } from './ui/settingsPanel.js';
+import { installSettingsPanel, focusSettingsPanel } from './ui/settingsPanel.js';
+import { installInputAuthorityGate } from './core/inputAuthority.js';
 
 const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION__';
 
@@ -29,6 +30,7 @@ class QbccRuntimeCompanion {
     this.kaizTripwire = null;
     this.lastSealIntervention = 0;
     this.stopSettingsPanel = () => {};
+    this.stopInputAuthority = () => {};
   }
 
   refreshContext() {
@@ -198,7 +200,8 @@ class QbccRuntimeCompanion {
 
   async start() {
     // Settings must be available immediately, even while MVU is still booting.
-    this.stopSettingsPanel = installSettingsPanel({ toast: (kind, msg) => this.api.toast(kind, msg) });
+    this.stopSettingsPanel = installSettingsPanel({ toast: (kind, msg) => this.api.toast(kind, msg), version: VERSION });
+    this.stopInputAuthority = installInputAuthorityGate({ onSanitized: () => this.api.toast('warning', 'Đã lọc lệnh can thiệp trực tiếp khỏi input.') });
     console.info(`[QBCC Runtime] settings UI installed; waiting for MVU...`);
     await this.api.waitForMvu();
     this.refreshContext();
@@ -248,7 +251,7 @@ if (!globalThis[INSTANCE_KEY]) {
     rescanLast: () => instance.onAssistantEvent(),
     triggerKaizAmon: reason => instance.triggerKaizAmon(reason || 'manual test'),
     releaseKaizAmon: async () => { restoreKaizAmon(instance.state); instance.state.kaizAmon = { awakened:false, reason:'', triggeredAt:0, lastAppliedAt:0, introPending:false, snapshot:null }; await instance.persist(); return true; },
-    openSettings: () => document.getElementById('qbcc-runtime-settings-btn')?.click?.(),
+    openSettings: () => focusSettingsPanel(),
     get state() { return instance.state; },
   };
   void instance.start();

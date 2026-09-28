@@ -1,114 +1,174 @@
 import { fetchModels, readModelSettings, writeModelSettings } from '../core/modelClient.js';
 
 const ROOT_ID = 'qbcc-runtime-settings-root';
-const STYLE_ID = 'qbcc-runtime-settings-style';
-
-function css() {
-  return `
-#qbcc-runtime-settings-btn{position:fixed;right:14px;bottom:76px;z-index:2147482000;width:38px;height:38px;border-radius:50%;border:1px solid rgba(125,165,220,.55);background:#111a28;color:#e6eef9;font-weight:700;cursor:pointer;box-shadow:0 5px 18px rgba(0,0,0,.35)}
-#qbcc-runtime-settings-root{position:fixed;inset:0;z-index:2147483000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.48)}
-#qbcc-runtime-settings-root.open{display:flex}
-#qbcc-runtime-settings-panel{width:min(440px,calc(100vw - 28px));background:#10151f;border:1px solid #334055;border-radius:12px;padding:15px;box-shadow:0 20px 70px rgba(0,0,0,.55);color:#eef3fa;font-family:system-ui,sans-serif}
-#qbcc-runtime-settings-panel .qbcc-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-weight:700}
-#qbcc-runtime-settings-panel .qbcc-x{border:0;background:transparent;color:#ddd;font-size:22px;cursor:pointer}
-#qbcc-runtime-settings-panel input,#qbcc-runtime-settings-panel select{box-sizing:border-box;width:100%;height:38px;margin:5px 0 10px;border:1px solid #39465b;border-radius:8px;background:#0a0f17;color:#eef3fa;padding:0 10px;outline:none}
-#qbcc-runtime-settings-panel label{font-size:12px;color:#b8c3d4}
-#qbcc-runtime-settings-panel .qbcc-row{display:flex;gap:8px;align-items:center}
-#qbcc-runtime-settings-panel .qbcc-row select{margin-bottom:5px;flex:1}
-#qbcc-runtime-settings-panel button.qbcc-action{height:38px;border:1px solid #445a77;border-radius:8px;background:#18283e;color:#eef3fa;padding:0 13px;cursor:pointer;white-space:nowrap}
-#qbcc-runtime-settings-panel .qbcc-save{width:100%;margin-top:8px;background:#1c3554!important}
-#qbcc-runtime-settings-status{min-height:16px;font-size:11px;color:#9fb2ca;margin-top:4px}
-`;
-}
+const SETTINGS_STYLE_ID = 'qbcc-runtime-settings-style';
+const HOST_CANDIDATES = ['#extensions_settings2', '#extensions_settings'];
 
 function el(id) { return document.getElementById(id); }
 
+function css() {
+  return `
+#${ROOT_ID}{margin:8px 0 10px;width:100%;box-sizing:border-box}
+#${ROOT_ID} .qbcc-runtime-header{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;gap:10px}
+#${ROOT_ID} .qbcc-runtime-title{display:flex;align-items:center;gap:8px;font-weight:700}
+#${ROOT_ID} .qbcc-runtime-version{font-size:10px;opacity:.65;font-weight:600}
+#${ROOT_ID} .qbcc-runtime-chevron{transition:transform .16s ease}
+#${ROOT_ID}.qbcc-collapsed .qbcc-runtime-chevron{transform:rotate(-90deg)}
+#${ROOT_ID}.qbcc-collapsed .qbcc-runtime-body{display:none}
+#${ROOT_ID} .qbcc-runtime-body{padding:10px 4px 4px}
+#${ROOT_ID} .qbcc-runtime-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#${ROOT_ID} .qbcc-runtime-field{min-width:0}
+#${ROOT_ID} .qbcc-runtime-field.qbcc-full{grid-column:1 / -1}
+#${ROOT_ID} label{display:block;margin:0 0 5px;font-size:12px;opacity:.82}
+#${ROOT_ID} input,#${ROOT_ID} select{width:100%;box-sizing:border-box;min-height:36px}
+#${ROOT_ID} .qbcc-runtime-model-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+#${ROOT_ID} .qbcc-runtime-actions{display:flex;gap:8px;align-items:center;margin-top:10px}
+#${ROOT_ID} .qbcc-runtime-actions .menu_button{min-height:34px;display:flex;align-items:center;justify-content:center}
+#${ROOT_ID} .qbcc-runtime-save{min-width:90px}
+#${ROOT_ID} .qbcc-runtime-status{min-height:18px;font-size:11px;opacity:.72;display:flex;align-items:center}
+@media(max-width:700px){#${ROOT_ID} .qbcc-runtime-grid{grid-template-columns:1fr}#${ROOT_ID} .qbcc-runtime-field.qbcc-full{grid-column:auto}}
+`;
+}
+
 function ensureStyles() {
-  if (el(STYLE_ID)) return;
+  if (typeof document === 'undefined' || el(SETTINGS_STYLE_ID)) return;
   const style = document.createElement('style');
-  style.id = STYLE_ID;
+  style.id = SETTINGS_STYLE_ID;
   style.textContent = css();
   document.head.appendChild(style);
 }
 
-export function installSettingsPanel({ toast } = {}) {
-  if (typeof document === 'undefined') return () => {};
-  ensureStyles();
-  if (el(ROOT_ID)) return () => {};
+function findHost() {
+  for (const selector of HOST_CANDIDATES) {
+    const host = document.querySelector(selector);
+    if (host) return host;
+  }
+  return null;
+}
 
-  const btn = document.createElement('button');
-  btn.id = 'qbcc-runtime-settings-btn';
-  btn.type = 'button';
-  btn.textContent = 'QB';
-  btn.title = 'QBCC Runtime';
-
+function createRoot(version = '') {
   const root = document.createElement('div');
   root.id = ROOT_ID;
+  root.className = 'inline-drawer';
   root.innerHTML = `
-<div id="qbcc-runtime-settings-panel">
-  <div class="qbcc-head"><span>QBCC Runtime</span><button type="button" class="qbcc-x" id="qbcc-runtime-settings-close">×</button></div>
-  <label>URL</label>
-  <input id="qbcc-runtime-url" autocomplete="off" spellcheck="false" />
-  <label>API Key</label>
-  <input id="qbcc-runtime-api" type="password" autocomplete="off" spellcheck="false" />
-  <label>Model</label>
-  <div class="qbcc-row">
-    <select id="qbcc-runtime-model"><option value=""></option></select>
-    <button type="button" class="qbcc-action" id="qbcc-runtime-load-models">Tải model</button>
+<div class="inline-drawer-toggle inline-drawer-header qbcc-runtime-header">
+  <div class="qbcc-runtime-title"><span>QBCC Runtime</span><span class="qbcc-runtime-version">v${String(version || '')}</span></div>
+  <i class="fa-solid fa-circle-chevron-down inline-drawer-icon qbcc-runtime-chevron"></i>
+</div>
+<div class="inline-drawer-content qbcc-runtime-body">
+  <div class="qbcc-runtime-grid">
+    <div class="qbcc-runtime-field qbcc-full">
+      <label for="qbcc-runtime-url">URL</label>
+      <input id="qbcc-runtime-url" class="text_pole" autocomplete="off" spellcheck="false" />
+    </div>
+    <div class="qbcc-runtime-field qbcc-full">
+      <label for="qbcc-runtime-api">API Key</label>
+      <input id="qbcc-runtime-api" class="text_pole" type="password" autocomplete="off" spellcheck="false" />
+    </div>
+    <div class="qbcc-runtime-field qbcc-full">
+      <label for="qbcc-runtime-model">Model</label>
+      <div class="qbcc-runtime-model-row">
+        <select id="qbcc-runtime-model" class="text_pole"><option value=""></option></select>
+        <div id="qbcc-runtime-load-models" class="menu_button interactable" tabindex="0">Tải model</div>
+      </div>
+    </div>
   </div>
-  <input id="qbcc-runtime-model-manual" placeholder="Model" autocomplete="off" spellcheck="false" />
-  <button type="button" class="qbcc-action qbcc-save" id="qbcc-runtime-save">Lưu</button>
-  <div id="qbcc-runtime-settings-status"></div>
+  <div class="qbcc-runtime-actions">
+    <div id="qbcc-runtime-save" class="menu_button interactable qbcc-runtime-save" tabindex="0">Lưu</div>
+    <div id="qbcc-runtime-settings-status" class="qbcc-runtime-status"></div>
+  </div>
 </div>`;
-  document.body.append(btn, root);
+  return root;
+}
 
-  const url = el('qbcc-runtime-url');
-  const api = el('qbcc-runtime-api');
-  const model = el('qbcc-runtime-model');
-  const manual = el('qbcc-runtime-model-manual');
-  const status = el('qbcc-runtime-settings-status');
+export function installSettingsPanel({ toast, version = '' } = {}) {
+  if (typeof document === 'undefined') return () => {};
+  ensureStyles();
 
-  function fill() {
-    const s = readModelSettings();
-    url.value = s.url || '';
-    api.value = s.apiKey || '';
-    manual.value = s.model || '';
-    if (s.model && ![...model.options].some(o => o.value === s.model)) model.add(new Option(s.model, s.model));
-    model.value = s.model || '';
-  }
-  function open() { fill(); root.classList.add('open'); }
-  function close() { root.classList.remove('open'); }
-  function save() {
-    const chosen = String(model.value || manual.value || '').trim();
-    writeModelSettings({ url: url.value, apiKey: api.value, model: chosen });
-    if (chosen) manual.value = chosen;
-    status.textContent = 'Đã lưu';
-    toast?.('success', 'Đã lưu cấu hình model.');
-  }
+  let root = el(ROOT_ID);
+  let observer = null;
+  let disposed = false;
 
-  btn.addEventListener('click', open);
-  el('qbcc-runtime-settings-close').addEventListener('click', close);
-  root.addEventListener('click', e => { if (e.target === root) close(); });
-  el('qbcc-runtime-save').addEventListener('click', save);
-  model.addEventListener('change', () => { if (model.value) manual.value = model.value; });
-  manual.addEventListener('input', () => { if (manual.value !== model.value) model.value = ''; });
-  el('qbcc-runtime-load-models').addEventListener('click', async () => {
-    status.textContent = 'Đang tải...';
-    const temp = { url: url.value, apiKey: api.value, model: manual.value || model.value };
-    try {
-      const models = await fetchModels(temp);
-      const current = String(manual.value || model.value || '').trim();
-      model.innerHTML = '<option value=""></option>';
-      for (const name of models) model.add(new Option(name, name));
-      if (current && !models.includes(current)) model.add(new Option(current, current));
-      model.value = current;
-      status.textContent = `${models.length} model`;
-      if (!manual.value && models.length === 1) { manual.value = models[0]; model.value = models[0]; }
-    } catch (e) {
-      status.textContent = `Lỗi: ${e?.message || e}`;
+  function bind(currentRoot) {
+    const url = currentRoot.querySelector('#qbcc-runtime-url');
+    const api = currentRoot.querySelector('#qbcc-runtime-api');
+    const model = currentRoot.querySelector('#qbcc-runtime-model');
+    const status = currentRoot.querySelector('#qbcc-runtime-settings-status');
+    const header = currentRoot.querySelector('.qbcc-runtime-header');
+    const load = currentRoot.querySelector('#qbcc-runtime-load-models');
+    const saveBtn = currentRoot.querySelector('#qbcc-runtime-save');
+
+    function fill() {
+      const s = readModelSettings();
+      url.value = s.url || '';
+      api.value = s.apiKey || '';
+      if (s.model && ![...model.options].some(o => o.value === s.model)) model.add(new Option(s.model, s.model));
+      model.value = s.model || '';
     }
-  });
 
-  fill();
-  return () => { btn.remove(); root.remove(); };
+    function save() {
+      const chosen = String(model.value || '').trim();
+      writeModelSettings({ url: url.value, apiKey: api.value, model: chosen });
+      status.textContent = 'Đã lưu';
+      toast?.('success', 'Đã lưu cấu hình model.');
+    }
+
+    async function loadModels() {
+      status.textContent = 'Đang tải...';
+      const temp = { url: url.value, apiKey: api.value, model: model.value };
+      try {
+        const models = await fetchModels(temp);
+        const current = String(model.value || readModelSettings().model || '').trim();
+        model.innerHTML = '<option value=""></option>';
+        for (const name of models) model.add(new Option(name, name));
+        if (current && !models.includes(current)) model.add(new Option(current, current));
+        model.value = current || (models.length === 1 ? models[0] : '');
+        status.textContent = `${models.length} model`;
+      } catch (e) {
+        status.textContent = `Lỗi: ${e?.message || e}`;
+      }
+    }
+
+    header?.addEventListener('click', () => currentRoot.classList.toggle('qbcc-collapsed'));
+    saveBtn?.addEventListener('click', save);
+    load?.addEventListener('click', loadModels);
+    load?.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadModels(); } });
+    saveBtn?.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); save(); } });
+    fill();
+  }
+
+  function mount() {
+    if (disposed) return false;
+    const existing = el(ROOT_ID);
+    if (existing) { root = existing; return true; }
+    const host = findHost();
+    if (!host) return false;
+    root = createRoot(version);
+    host.appendChild(root);
+    bind(root);
+    console.info('[QBCC Runtime] settings section mounted in Extensions panel');
+    return true;
+  }
+
+  if (!mount()) {
+    observer = new MutationObserver(() => {
+      if (mount()) { observer?.disconnect(); observer = null; }
+    });
+    observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
+  }
+
+  return () => {
+    disposed = true;
+    observer?.disconnect();
+    el(ROOT_ID)?.remove();
+  };
+}
+
+export function focusSettingsPanel() {
+  const root = el(ROOT_ID);
+  if (!root) return false;
+  root.classList.remove('qbcc-collapsed');
+  root.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setTimeout(() => root.querySelector('#qbcc-runtime-url')?.focus?.(), 220);
+  return true;
 }
