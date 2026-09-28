@@ -20,7 +20,8 @@ export function buildAmonSystemAuthority(runtimeState) {
 }
 
 export function applyHardModeToChat(messages, { difficulty, statData, runtimeState }) {
-  if (!isHardMode(difficulty) || !Array.isArray(messages)) return { amonEffect: { mode: 'none' }, injected: [] };
+  const entityAuthorityEnabled = isHardMode(difficulty) || runtimeState?.sandboxTest === true;
+  if (!entityAuthorityEnabled || !Array.isArray(messages)) return { amonEffect: { mode: 'none' }, injected: [] };
   const injected = [];
   const amonEffect = resolveAmonTheft(runtimeState.amon, statData);
   const userIdx = findLastUser(messages);
@@ -50,7 +51,8 @@ export function applyHardModeToChat(messages, { difficulty, statData, runtimeSta
 }
 
 export function applyHardModeToTextPrompt(prompt, ctx) {
-  if (!isHardMode(ctx.difficulty)) return String(prompt ?? '');
+  const entityAuthorityEnabled = isHardMode(ctx.difficulty) || ctx.runtimeState?.sandboxTest === true;
+  if (!entityAuthorityEnabled) return String(prompt ?? '');
   const extra = [];
   const amonAuthority = buildAmonSystemAuthority(ctx.runtimeState);
   if (amonAuthority) extra.push(amonAuthority);

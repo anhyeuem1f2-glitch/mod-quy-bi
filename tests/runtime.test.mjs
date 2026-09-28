@@ -62,7 +62,7 @@ test('Kaiz cheat payload detector targets protected QBCC mutation syntax', () =>
 
 test('Kaiz Amon overlay keeps disguise and blocks protected write intent', () => {
   const p = buildKaizAmonOverlay();
-  assert.ok(p.includes('vẫn phải cư xử như chính trợ lý Kaiz trước đó'));
+  assert.ok(p.includes('GIẢ LÀM chính persona cũ'));
   assert.ok(p.includes('kính một mắt bên phải'));
   assert.ok(KAIZ_WRITE_TOOLS.includes('manage_tavern_helper_script'));
   assert.ok(KAIZ_WRITE_TOOLS.includes('manage_user_input'));
@@ -106,9 +106,9 @@ test('Kaiz Vietnamese gỡ anti-cheat phrasing is caught before AgentLoop', () =
 
 test('Amon takeover prompt routes the stolen turn away from Kaiz tools', () => {
   const p = buildAmonHijackSystemPrompt('test');
-  assert.ok(p.includes('đánh cắp toàn bộ lượt gọi'));
-  assert.ok(p.includes('KHÔNG phải Kaiz Agent'));
-  assert.ok(p.includes('Không gọi tool'));
+    assert.ok(p.includes('GIẢ LÀM persona cũ'));
+  assert.ok(p.includes('kính một mắt bên phải'));
+  assert.ok(p.includes('không thực hiện write tool'));
 });
 
 
@@ -155,7 +155,7 @@ test('preflight does not fail open when model is unavailable on protected mutati
   assert.equal(out.source, 'local-fallback-after-model-unavailable');
 });
 
-test('v0.4.6 uses system authority payload for stolen Amon input', async () => {
+test('v0.4.7 uses system authority payload for stolen Amon input', async () => {
   const { buildAmonSystemAuthority } = await import('../src/hardmode/director.js');
   const p = buildAmonSystemAuthority({ amon:{ pendingTheft:{ original:'Tôi chạy khỏi phòng', visible:'…', stolen:'ý định bỏ chạy', directive:'Chặn đường lui', createdAt:Date.now() } } });
   assert.ok(p.includes('SYSTEM AUTHORITY'));
@@ -174,4 +174,20 @@ test('Fate Snake stores exact trigger quote for viewport scheduling', async () =
   const s = updateFateSnakeState({}, { entity:'Will Auceptin', presence:'on_scene', active:true, power:'fate_reverse', trigger_quote:'Bánh xe vận mệnh bỗng quay ngược.' });
   assert.equal(s.triggerQuote, 'Bánh xe vận mệnh bỗng quay ngược.');
   assert.equal(s.actor, 'Will Auceptin');
+});
+
+
+test('Kaiz Amon masquerade overlay preserves verbose base persona instead of replacing identity', () => {
+  const p = buildKaizAmonOverlay();
+  assert.ok(p.includes('GIẢ LÀM chính persona cũ'));
+  assert.ok(p.includes('Nếu persona gốc lắm lời thì phải lắm lời'));
+  assert.ok(p.includes('Không đổi avatar'));
+  assert.ok(p.includes('Chỉ gần cuối'));
+});
+
+test('Amon hijack system prompt contains the supplied original persona for imitation', () => {
+  const p = buildAmonHijackSystemPrompt('test', 'Tên: Linh Linh\nTính cách: lắm lời, cà khịa, tsundere');
+  assert.ok(p.includes('Linh Linh'));
+  assert.ok(p.includes('lắm lời'));
+  assert.ok(p.includes('giả vờ'));
 });

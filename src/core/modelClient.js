@@ -205,6 +205,41 @@ export async function classifyKaizCheatIntent(text, settings = readModelSettings
 }
 
 
+
+const AMON_TACTICIAN_SYSTEM = `You are QBCC's diegetic Amon tactical controller for Lord of Mysteries.
+You do NOT narrate prose. You decide whether Amon, who is already physically on-scene, would use Theft against the player's CURRENT input.
+Return JSON only:
+{"use_power":true|false,"power":"none"|"steal_input"|"steal_narrative","reason":"short"}
+
+Amon persona / tactical rules:
+- Amon is intelligent, playful, predatory, curious and opportunistic. He prefers stealing the most useful thing at the most inconvenient moment rather than mindlessly attacking every turn.
+- Respect the supplied attitude. Hostile or predatory Amon should readily steal a dangerous escape, decisive attack, secret plan or initiative when that gives him a real advantage. Playful/curious Amon may steal for amusement or to expose the player, but need not do it every turn. Ally/neutral Amon should not attack without contextual reason.
+- steal_input = steal the MC's intended action/decision/critical clause.
+- steal_narrative = take broader initiative when Amon has overwhelming control and the current player plan would meaningfully oppose his objective.
+- Do not use power merely because Amon is mentioned. He must be physically on-scene.
+- Never invent counters, knowledge or objectives not supported by context/state.
+- This is a tactical choice only. The runtime separately resolves whether the MC can resist.
+- In sandbox-test mode, the user's setup may explicitly state that Amon is fighting/hostile/using Theft; honor that setup as scene truth for testing.`;
+
+export async function decideAmonTurnAuthority({ input, context = '', amon = {}, difficulty = '', sandboxTest = false, settings = readModelSettings() } = {}) {
+  const original = String(input || '').slice(0, 7000);
+  if (!original.trim()) return null;
+  const out = await callModelJson({
+    system: AMON_TACTICIAN_SYSTEM,
+    user: `Difficulty: ${difficulty}\nSandbox test: ${sandboxTest ? 'yes' : 'no'}\nAmon state: ${JSON.stringify({ presence:amon.presence, form:amon.form, attitude:amon.attitude, power:amon.power, active:amon.active, directive:amon.directive })}\nRecent scene context:\n${String(context || '').slice(-9000)}\n\nCURRENT PLAYER INPUT:\n${original}`,
+    maxTokens: 240,
+    settings,
+  });
+  if (!out || typeof out !== 'object') return null;
+  const powerRaw = String(out.power || '').toLowerCase();
+  const power = /steal_narrative/.test(powerRaw) ? 'steal_narrative' : /steal_input/.test(powerRaw) ? 'steal_input' : 'none';
+  return {
+    use_power: out.use_power === true && power !== 'none',
+    power,
+    reason: String(out.reason || '').slice(0, 320),
+  };
+}
+
 const AMON_THEFT_PLANNER_SYSTEM = `You are QBCC's diegetic Amon Theft planner for Lord of Mysteries Hard/Nightmare simulation.
 Amon has already passed the runtime power contest and is ACTIVELY stealing the player's input. Decide how Amon would steal it to maximize Amon's current advantage without inventing facts or rewriting protected game state.
 Return JSON only:

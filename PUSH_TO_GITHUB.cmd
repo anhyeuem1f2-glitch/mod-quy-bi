@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 
-set "KEEP=qbcc-runtime-v0.4.6.js"
+set "KEEP=qbcc-runtime-v0.4.7.js"
 echo [QBCC] Cleaning ALL stale versioned runtime bundles...
 for %%F in (dist\qbcc-runtime-v*.js) do (
   if /I not "%%~nxF"=="%KEEP%" (
@@ -12,6 +12,6 @@ for %%F in (dist\qbcc-runtime-v*.js) do (
 )
 
 git add -A
-git commit -m "QBCC Runtime v0.4.6 - Amon Adam authority and viewport fate reroll"
+git commit -m "QBCC Runtime v0.4.7 - persona masquerade and Amon tactical theft"
 git push origin main
 pause

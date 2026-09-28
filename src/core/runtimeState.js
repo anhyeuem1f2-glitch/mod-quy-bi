@@ -4,7 +4,8 @@ export function defaultRuntimeState() {
   return {
     version: VERSION,
     lastAssistantId: -1,
-    amon: { presence: 'absent', form: 'unknown', attitude: 'unknown', power: 'none', active: false, directive: '', needsClassification: false, pendingTheft: null },
+    sandboxTest: false,
+    amon: { presence: 'absent', form: 'unknown', attitude: 'unknown', power: 'none', active: false, directive: '', needsClassification: false, pendingTheft: null, lastTacticalDecision: null },
     adam: { presence: 'absent', attitude: 'unknown', power: 'none', active: false, directive: '', pendingDirective: null },
     evernight: { presence: 'absent', power: 'none', active: false },
     fateSnake: { presence: 'absent', power: 'none', active: false, triggerQuote: '', actor: '', pendingMessageId: -1 },
