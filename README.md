@@ -81,7 +81,7 @@ QBCC_RUNTIME.rescanLast()
 
 This repository intentionally uses no npm runtime dependencies. Browser ESM relative imports are used so the GitHub/jsDelivr source itself is the deployable artifact.
 
-## Kaiz Agent Extension × Amon easter egg (v0.3.0)
+## Kaiz Agent Extension × Amon easter egg (v0.3.1)
 
 The companion recognizes the public `Khanhhpk/Kaiz-Agent-Extension` without blocking the extension as a whole.
 
@@ -99,3 +99,14 @@ Debug helpers:
 QBCC_RUNTIME.triggerKaizAmon('manual test')
 QBCC_RUNTIME.releaseKaizAmon()
 ```
+
+
+## Static Tavern Helper import
+
+Use a top-level static ESM import, matching the MVU/Zod scripts already used by the card:
+
+```js
+import 'https://testingcf.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/src/index.js?v=0.3.1';
+```
+
+The settings button is installed before waiting for MVU, so URL/API/model configuration remains available during MVU startup.

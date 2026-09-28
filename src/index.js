@@ -197,12 +197,14 @@ class QbccRuntimeCompanion {
   };
 
   async start() {
+    // Settings must be available immediately, even while MVU is still booting.
+    this.stopSettingsPanel = installSettingsPanel({ toast: (kind, msg) => this.api.toast(kind, msg) });
+    console.info(`[QBCC Runtime] settings UI installed; waiting for MVU...`);
     await this.api.waitForMvu();
     this.refreshContext();
     this.state = readStoredState(this.api);
     this.stopRedactor = installDomRedactor();
     this.lastSealIntervention = Number(this.statData?._Niêm_phong?.Can_thiệp || 0);
-    this.stopSettingsPanel = installSettingsPanel({ toast: (kind, msg) => this.api.toast(kind, msg) });
     this.kaizTripwire = installKaizTripwire({
       onTrigger: reason => void this.triggerKaizAmon(reason),
       onIntentCheck: text => classifyKaizCheatIntent(text),
@@ -234,6 +236,8 @@ class QbccRuntimeCompanion {
     };
   }
 }
+
+console.info(`[QBCC Runtime] module evaluated v${VERSION}`);
 
 if (!globalThis[INSTANCE_KEY]) {
   const instance = new QbccRuntimeCompanion();

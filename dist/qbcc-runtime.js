@@ -1,2 +1,2 @@
-// Stable Tavern Helper entrypoint. Relative ESM imports resolve through jsDelivr/GitHub.
+// Stable Tavern Helper entrypoint v0.3.1
 export * from '../src/index.js';
