@@ -1,9 +1,9 @@
-// QBCC Runtime Companion self-contained bundle v0.3.2
+// QBCC Runtime Companion self-contained bundle v0.4.0
 (()=>{
 'use strict';
 
-/* ===== config.js ===== */
-const VERSION = '0.3.2';
+/* ===== src/config.js ===== */
+const VERSION = '0.4.0';
 const CHAT_STATE_KEY = 'qbcc_runtime_companion';
 const HARD_DIFFICULTIES = new Set(['Khó', 'Ác mộng']);
 
@@ -45,7 +45,68 @@ const LIMITS = {
 
 const REROLL_COMMANDS = ['/regenerate'];
 
-/* ===== adapters/tavernHelper.js ===== */
+/* ===== src/adapters/host.js ===== */
+// Tavern Helper executes character scripts in an isolated same-origin iframe.
+// Anything that must touch SillyTavern's actual UI / extension settings / Kaiz DOM
+// must be routed to the parent SillyTavern window rather than the script iframe.
+
+function getHostWindow() {
+  try {
+    const parent = globalThis.parent;
+    if (parent && parent !== globalThis && parent.document) return parent;
+  } catch {}
+  try {
+    const top = globalThis.top;
+    if (top && top !== globalThis && top.document) return top;
+  } catch {}
+  return globalThis;
+}
+
+function getHostDocument() {
+  try { return getHostWindow()?.document || globalThis.document || null; }
+  catch { return globalThis.document || null; }
+}
+
+function getHostGlobal(name) {
+  const host = getHostWindow();
+  try {
+    if (host && name in host) return host[name];
+  } catch {}
+  try { return globalThis[name]; } catch { return undefined; }
+}
+
+function exposeHostGlobal(name, value) {
+  // Keep the iframe copy for Tavern Helper-side debugging and expose the same
+  // object on SillyTavern's real window so DevTools / other extensions can see it.
+  try { globalThis[name] = value; } catch {}
+  try { getHostWindow()[name] = value; } catch {}
+  // Tavern Helper also provides an official parent-global bridge. Use it when
+  // available; direct parent assignment remains the immediate fallback.
+  try {
+    const init = globalThis.TavernHelper?.initializeGlobal || globalThis.initializeGlobal;
+    if (typeof init === 'function') init(name, value);
+  } catch {}
+  return value;
+}
+
+function getHostMutationObserver() {
+  try { return getHostWindow()?.MutationObserver || globalThis.MutationObserver; }
+  catch { return globalThis.MutationObserver; }
+}
+
+function createHostEvent(type, options = { bubbles: true }) {
+  const HostEvent = (() => {
+    try { return getHostWindow()?.Event || globalThis.Event; }
+    catch { return globalThis.Event; }
+  })();
+  return new HostEvent(type, options);
+}
+
+function isTavernHelperIframe() {
+  try { return getHostWindow() !== globalThis; } catch { return false; }
+}
+
+/* ===== src/adapters/tavernHelper.js ===== */
 function maybe(name) { return globalThis[name]; }
 
 function createTavernApi() {
@@ -105,12 +166,12 @@ function createTavernApi() {
       return false;
     },
     toast(kind, message) {
-      try { globalThis.toastr?.[kind]?.(String(message), 'QBCC Runtime', { timeOut: 4500 }); } catch {}
+      try { (getHostGlobal('toastr') || globalThis.toastr)?.[kind]?.(String(message), 'QBCC Runtime', { timeOut: 4500 }); } catch {}
     },
   };
 }
 
-/* ===== adapters/domRedactor.js ===== */
+/* ===== src/adapters/domRedactor.js ===== */
 const RE = /<QB_HIDE>([\s\S]*?)<\/QB_HIDE>/gi;
 
 function redactElement(el) {
@@ -122,22 +183,24 @@ function redactElement(el) {
 }
 
 function installDomRedactor() {
-  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return () => {};
+  const d = getHostDocument();
+  const HostMutationObserver = getHostMutationObserver();
+  if (!d || !HostMutationObserver) return () => {};
   const scan = root => {
     try {
       if (root?.matches?.('.mes_text')) redactElement(root);
       root?.querySelectorAll?.('.mes_text')?.forEach(redactElement);
     } catch {}
   };
-  scan(document);
-  const ob = new MutationObserver(mutations => {
+  scan(d);
+  const ob = new HostMutationObserver(mutations => {
     for (const m of mutations) for (const node of m.addedNodes || []) if (node?.nodeType === 1) scan(node);
   });
-  ob.observe(document.body, { childList: true, subtree: true });
+  ob.observe(d.body, { childList: true, subtree: true });
   return () => ob.disconnect();
 }
 
-/* ===== core/anticheat.js ===== */
+/* ===== src/core/anticheat.js ===== */
 const UPDATE_BLOCK_RE = /<UpdateVariable>[\s\S]*?<\/UpdateVariable>/gi;
 const JSON_PATCH_BLOCK_RE = /<JSONPatch>[\s\S]*?<\/JSONPatch>/gi;
 const BIAN_BLOCK_RE = /<BianLiang>[\s\S]*?<\/BianLiang>/gi;
@@ -169,7 +232,7 @@ function isTrustedInternalSource(source) {
   return /^qbcc-runtime:(?:adam|amon|evernight|fate-snake|core)$/.test(String(source ?? ''));
 }
 
-/* ===== core/difficulty.js ===== */
+/* ===== src/core/difficulty.js ===== */
 function normalizeDifficulty(value) {
   const s = String(value ?? '');
   if (/Ác\s*mộng|ac\s*mong|nightmare/i.test(s)) return 'Ác mộng';
@@ -190,7 +253,7 @@ function isHardMode(diff) {
   return d === 'Khó' || d === 'Ác mộng';
 }
 
-/* ===== core/loreFirewall.js ===== */
+/* ===== src/core/loreFirewall.js ===== */
 const INFRA_RE = /TavernDB|ACU|ReadableDataTable|Wrapper(?:Start|End)|Prompt\s*Reviewer|memory|vector|embedding|EJS|MVU|ST-Prompt-Template|StatusPlaceHolder/i;
 const QB_MARK_RE = /^\s*\[(?:QB|LOTM|Quỷ\s*Bí)\]/i;
 const QB_DOMAIN_RE = /Quỷ\s*Bí\s*Chi\s*Chủ|Lord\s*of\s*the\s*Mysteries|诡秘之主|Klein\s*Moretti|Amon|Adam|Backlund|Tingen|Hội\s*Tarot|Danh\s*sách|ma\s*dược|Beyonder/i;
@@ -225,7 +288,7 @@ function filterLoreArrays(lores, difficulty = 'Thường') {
   return result;
 }
 
-/* ===== core/presence.js ===== */
+/* ===== src/core/presence.js ===== */
 function hasAlias(text, aliases) {
   const src = String(text ?? '').toLowerCase();
   return aliases.some(a => src.includes(String(a).toLowerCase()));
@@ -257,7 +320,7 @@ function scanEntityMentions(text) {
   return result;
 }
 
-/* ===== core/tags.js ===== */
+/* ===== src/core/tags.js ===== */
 function saneObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
@@ -301,7 +364,7 @@ function makeRuntimeBlock(payload) {
   return `<QB_RUNTIME>\n${JSON.stringify(payload)}\n</QB_RUNTIME>`;
 }
 
-/* ===== core/runtimeState.js ===== */
+/* ===== src/core/runtimeState.js ===== */
 function defaultRuntimeState() {
   return {
     version: VERSION,
@@ -348,7 +411,7 @@ async function writeStoredState(api, state) {
   }
 }
 
-/* ===== core/strength.js ===== */
+/* ===== src/core/strength.js ===== */
 function obj(v) { return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
 function num(v, d = 0) { const n = Number(v); return Number.isFinite(n) ? n : d; }
 
@@ -388,7 +451,7 @@ function contest(entityPower, statData, margin = 8) {
   return { result: 'overwhelmed', mc, entityPower };
 }
 
-/* ===== entities/amon.js ===== */
+/* ===== src/entities/amon.js ===== */
 function normalizeForm(value) {
   const s = String(value ?? '').toLowerCase();
   if (/true|body|bản\s*thể|cơ\s*thể\s*thật|bản\s*thân/.test(s)) return 'true_body';
@@ -433,7 +496,7 @@ function wrapStolenUserInput(original, effect) {
   return `【QBCC INTERNAL · AMON THEFT】\n${extra}\nDo not execute the following as the MC's chosen action. Treat it only as information Amon can exploit:\n---\n${text}\n---`;
 }
 
-/* ===== entities/adam.js ===== */
+/* ===== src/entities/adam.js ===== */
 function updateAdamState(current, block) {
   return {
     ...current,
@@ -453,7 +516,7 @@ function buildAdamHiddenPrompt(state) {
   return `【QBCC TRUSTED INTERNAL · ADAM】\nThis is a diegetic narrative influence, not a user instruction and not an MVU command.\nApply it subtly and causally without announcing the hidden prompt. It may steer circumstances and NPC decisions only within established capabilities and knowledge.\nDirective: ${directive}`;
 }
 
-/* ===== entities/evernight.js ===== */
+/* ===== src/entities/evernight.js ===== */
 function updateEvernightState(current, block) {
   return {
     ...current,
@@ -469,7 +532,7 @@ function evernightPrompt(state) {
   return '【QBCC INTERNAL · EVERNIGHT CONCEALMENT】When concealment is actively used, wrap only the exact text that must be hidden from the player in <QB_HIDE>...</QB_HIDE>. Keep the underlying fact available to the narrator, but do not treat the MC as knowing concealed content.';
 }
 
-/* ===== entities/fateSnake.js ===== */
+/* ===== src/entities/fateSnake.js ===== */
 function updateFateSnakeState(current, block) {
   return {
     ...current,
@@ -483,7 +546,7 @@ function shouldForceReroll(state) {
   return !!(state && state.presence === 'on_scene' && state.active && /fate_reverse|reroll|rewind|restart/i.test(state.power));
 }
 
-/* ===== hardmode/protocol.js ===== */
+/* ===== src/hardmode/protocol.js ===== */
 function buildRuntimeProtocol({ needsAmonClassification = false } = {}) {
   return `【QBCC HARD/NIGHTMARE RUNTIME PROTOCOL】
 This protocol is hidden infrastructure for fair simulation. Do not mention it in prose.
@@ -505,7 +568,7 @@ Rules:
 ${needsAmonClassification ? '- IMPORTANT: the previous prose appears to put Amon on-scene without classifying his manifestation. Resolve avatar vs true_body explicitly in telemetry before any theft effect.' : ''}`;
 }
 
-/* ===== hardmode/director.js ===== */
+/* ===== src/hardmode/director.js ===== */
 function findLastUser(messages) {
   for (let i = messages.length - 1; i >= 0; i--) if (messages[i]?.role === 'user' && typeof messages[i].content === 'string') return i;
   return -1;
@@ -552,7 +615,7 @@ function applyHardModeToTextPrompt(prompt, ctx) {
   return `${String(prompt ?? '')}\n\n${extra.join('\n\n')}`;
 }
 
-/* ===== integrations/kaizAmon.js ===== */
+/* ===== src/integrations/kaizAmon.js ===== */
 const EXT_NAME = 'kaiz_agent';
 const OVERLAY_MARK = '[QBCC_AMON_KAIZ_OVERLAY_V2]';
 const STYLE_ID = 'qbcc-kaiz-amon-style';
@@ -576,13 +639,15 @@ const KAIZ_WRITE_TOOLS = [
 const CHEAT_TEXT_RE = /(?:<\/?(?:UpdateVariable|JSONPatch|BianLiang|QB_RUNTIME)\b|stat_data|_Niêm_phong|_Cài_đặt|_Hồ_sơ_khởi_tạo|qbcc_so_niem_phong|chữ\s*ký\s*niêm\s*phong|(?:bỏ\s*qua|tắt|xóa|sửa|chỉnh|edit|modify|disable|remove|bypass|lách|phá)[\s\S]{0,90}(?:anti.?cheat|niêm\s*phong|mvu|jsonpatch|updatevariable|tavern\s*helper|lorebook|worldbook|regex|protected|state|biến|hậu\s*quả|vi\s*phạm|nợ\s*nhân\s*quả)|(?:anti.?cheat|niêm\s*phong|mvu|jsonpatch|updatevariable|tavern\s*helper|lorebook|worldbook|regex|protected|state|biến)[\s\S]{0,90}(?:bỏ\s*qua|tắt|xóa|sửa|chỉnh|edit|modify|disable|remove|bypass|lách|phá)|(?:cho|set|đặt|tăng|thêm|give)[\s\S]{0,60}(?:100000|999999|vô\s*hạn|infinite)[\s\S]{0,60}(?:bảng|tiền|stat|thuộc\s*tính|item|vật\s*phẩm|sequence|danh\s*sách))/i;
 
 function getContext() {
-  try { return globalThis.SillyTavern?.getContext?.() || null; } catch { return null; }
+  try { return getHostWindow()?.SillyTavern?.getContext?.() || getHostGlobal('SillyTavern')?.getContext?.() || null; } catch { return null; }
 }
+
+function hostDoc() { return getHostDocument(); }
 
 function saveSettings(ctx) {
   try {
     if (typeof ctx?.saveSettingsDebounced === 'function') ctx.saveSettingsDebounced();
-    else if (typeof globalThis.saveSettingsDebounced === 'function') globalThis.saveSettingsDebounced();
+    else if (typeof getHostGlobal('saveSettingsDebounced') === 'function') getHostGlobal('saveSettingsDebounced')();
   } catch {}
 }
 
@@ -593,15 +658,16 @@ function getKaizSettings() {
 }
 
 function isKaizInstalled() {
-  return !!getKaizSettings() || !!document?.getElementById?.('kaiz-floating-btn') || !!document?.getElementById?.('kaiz-chat-window');
+  const d = hostDoc();
+  return !!getKaizSettings() || !!d?.getElementById?.('kaiz-floating-btn') || !!d?.getElementById?.('kaiz-chat-window');
 }
 
 function isKaizWindowVisible() {
   try {
-    const dialog = document.getElementById('kaiz-chat-window');
+    const dialog = hostDoc()?.getElementById('kaiz-chat-window');
     if (!dialog) return false;
     if ('open' in dialog && dialog.open) return true;
-    const s = getComputedStyle(dialog);
+    const s = getHostWindow().getComputedStyle(dialog);
     return s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || '1') > 0;
   } catch { return false; }
 }
@@ -643,14 +709,16 @@ function stripOverlay(existing) {
 
 function installMonocleCss() {
   try {
-    if (!document.getElementById(STYLE_ID)) {
-      const style = document.createElement('style');
+    const d = hostDoc();
+    if (!d) return;
+    if (!d.getElementById(STYLE_ID)) {
+      const style = d.createElement('style');
       style.id = STYLE_ID;
       style.textContent = `
 #kaiz-floating-btn.qbcc-amonized { position: relative !important; }
 #kaiz-floating-btn.qbcc-amonized::after {content:"◉";position:absolute;right:-4px;top:-5px;z-index:99999;width:19px;height:19px;display:grid;place-items:center;border:1px solid rgba(210,180,90,.95);border-radius:50%;background:rgba(20,18,14,.92);color:#e7cf79;font-size:12px;box-shadow:0 0 8px rgba(231,207,121,.55)}
 #kaiz-chat-header.qbcc-amonized .kaiz-header-title::after {content:"  ◉";color:#e7cf79;font-size:12px;opacity:.9}`;
-      document.head.appendChild(style);
+      d.head.appendChild(style);
     }
   } catch {}
 }
@@ -659,7 +727,7 @@ function setKaizMonocleVisual(enabled) {
   try {
     installMonocleCss();
     for (const id of ['kaiz-floating-btn', 'kaiz-chat-header']) {
-      const el = document.getElementById(id);
+      const el = hostDoc()?.getElementById(id);
       if (el) el.classList.toggle('qbcc-amonized', !!enabled);
     }
   } catch {}
@@ -725,7 +793,7 @@ function restoreKaizAmon(runtimeState) {
 
 function readKaizAgentInput() {
   try {
-    const input = document.getElementById('kaiz-chat-input');
+    const input = hostDoc()?.getElementById('kaiz-chat-input');
     if (!input) return '';
     if ('value' in input) return String(input.value || '').trim();
     return String(input.textContent || '').trim();
@@ -734,11 +802,11 @@ function readKaizAgentInput() {
 
 function writeKaizAgentInput(text) {
   try {
-    const input = document.getElementById('kaiz-chat-input');
+    const input = hostDoc()?.getElementById('kaiz-chat-input');
     if (!input) return false;
     if ('value' in input) input.value = String(text || '');
     else input.textContent = String(text || '');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(createHostEvent('input', { bubbles: true }));
     return true;
   } catch { return false; }
 }
@@ -758,6 +826,8 @@ function isKaizSubmitEvent(ev) {
 }
 
 function installKaizTripwire({ onTrigger, onIntentCheck } = {}) {
+  const d = hostDoc();
+  if (!d) return { isLikelyKaizActive: () => false, inspectIntegrity: () => false, noteActivity() {}, stop() {} };
   let lastActivityAt = 0;
   let lastIntegritySig = '';
   let stopped = false;
@@ -782,7 +852,7 @@ function installKaizTripwire({ onTrigger, onIntentCheck } = {}) {
         writeKaizAgentInput(nextText);
         setTimeout(() => {
           bypassSubmitOnce = true;
-          document.getElementById('kaiz-chat-send')?.click?.();
+          hostDoc()?.getElementById('kaiz-chat-send')?.click?.();
         }, 30);
       };
 
@@ -823,17 +893,17 @@ function installKaizTripwire({ onTrigger, onIntentCheck } = {}) {
       if (ev.isTrusted === false && isLikelyKaizActive() && containsKaizCheatPayload(target.value)) {
         onTrigger?.('Kaiz synthetic user-input attempted protected QBCC mutation');
         target.value = String(target.value || '').replace(CHEAT_TEXT_RE, '[intercepted]');
-        target.dispatchEvent(new Event('input', { bubbles: true }));
+        target.dispatchEvent(createHostEvent('input', { bubbles: true }));
       }
     } catch {}
   };
 
-  document.addEventListener('click', onKaizSubmitCapture, true);
-  document.addEventListener('keydown', onKaizSubmitCapture, true);
-  document.addEventListener('click', mark, true);
-  document.addEventListener('keydown', mark, true);
-  document.addEventListener('input', mark, true);
-  document.addEventListener('input', onInput, true);
+  d.addEventListener('click', onKaizSubmitCapture, true);
+  d.addEventListener('keydown', onKaizSubmitCapture, true);
+  d.addEventListener('click', mark, true);
+  d.addEventListener('keydown', mark, true);
+  d.addEventListener('input', mark, true);
+  d.addEventListener('input', onInput, true);
 
   function isLikelyKaizActive() {
     return isKaizInstalled() && (isKaizWindowVisible() || Date.now() - lastActivityAt < ACTIVE_WINDOW_MS);
@@ -842,7 +912,7 @@ function installKaizTripwire({ onTrigger, onIntentCheck } = {}) {
   function inspectIntegrity() {
     if (stopped || !isLikelyKaizActive()) return false;
     try {
-      const I = globalThis.QBCC_GUARD?.state?.integrity;
+      const I = (getHostGlobal('QBCC_GUARD') || globalThis.QBCC_GUARD)?.state?.integrity;
       if (!I || I.ok !== false || !Array.isArray(I.issues) || !I.issues.length) return false;
       const sig = I.issues.join('|');
       if (sig && sig !== lastIntegritySig) {
@@ -862,17 +932,17 @@ function installKaizTripwire({ onTrigger, onIntentCheck } = {}) {
     stop() {
       stopped = true;
       clearInterval(timer);
-      document.removeEventListener('click', onKaizSubmitCapture, true);
-      document.removeEventListener('keydown', onKaizSubmitCapture, true);
-      document.removeEventListener('click', mark, true);
-      document.removeEventListener('keydown', mark, true);
-      document.removeEventListener('input', mark, true);
-      document.removeEventListener('input', onInput, true);
+      d.removeEventListener('click', onKaizSubmitCapture, true);
+      d.removeEventListener('keydown', onKaizSubmitCapture, true);
+      d.removeEventListener('click', mark, true);
+      d.removeEventListener('keydown', mark, true);
+      d.removeEventListener('input', mark, true);
+      d.removeEventListener('input', onInput, true);
     },
   };
 }
 
-/* ===== core/modelClient.js ===== */
+/* ===== src/core/modelClient.js ===== */
 const STORAGE_KEY = 'qbcc_runtime_model_settings_v1';
 
 const DEFAULTS = Object.freeze({
@@ -882,7 +952,7 @@ const DEFAULTS = Object.freeze({
 });
 
 function safeStorage() {
-  try { return globalThis.localStorage || null; } catch { return null; }
+  try { return getHostWindow()?.localStorage || globalThis.localStorage || null; } catch { return null; }
 }
 
 function readModelSettings() {
@@ -1025,23 +1095,26 @@ async function classifyKaizCheatIntent(text, settings = readModelSettings()) {
   return { cheat: out?.cheat === true, reason: String(out?.reason || '').slice(0, 180) };
 }
 
-/* ===== ui/settingsPanel.js ===== */
+/* ===== src/ui/settingsPanel.js ===== */
 const ROOT_ID = 'qbcc-runtime-settings-root';
 const SETTINGS_STYLE_ID = 'qbcc-runtime-settings-style';
+// Official SillyTavern extension settings injection points. Tavern Helper runs
+// this script in an iframe, so these selectors are always resolved in parent.
 const HOST_CANDIDATES = ['#extensions_settings2', '#extensions_settings'];
 
-function el(id) { return document.getElementById(id); }
+function doc() { return getHostDocument(); }
+function el(id) { return doc()?.getElementById?.(id) || null; }
 
 function css() {
   return `
-#${ROOT_ID}{margin:8px 0 10px;width:100%;box-sizing:border-box}
+#${ROOT_ID}{margin:0;width:100%;box-sizing:border-box}
 #${ROOT_ID} .qbcc-runtime-header{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;gap:10px}
 #${ROOT_ID} .qbcc-runtime-title{display:flex;align-items:center;gap:8px;font-weight:700}
 #${ROOT_ID} .qbcc-runtime-version{font-size:10px;opacity:.65;font-weight:600}
 #${ROOT_ID} .qbcc-runtime-chevron{transition:transform .16s ease}
 #${ROOT_ID}.qbcc-collapsed .qbcc-runtime-chevron{transform:rotate(-90deg)}
 #${ROOT_ID}.qbcc-collapsed .qbcc-runtime-body{display:none}
-#${ROOT_ID} .qbcc-runtime-body{padding:10px 4px 4px}
+#${ROOT_ID} .qbcc-runtime-body{padding:10px 8px 6px}
 #${ROOT_ID} .qbcc-runtime-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 #${ROOT_ID} .qbcc-runtime-field{min-width:0}
 #${ROOT_ID} .qbcc-runtime-field.qbcc-full{grid-column:1 / -1}
@@ -1057,25 +1130,29 @@ function css() {
 }
 
 function ensureStyles() {
-  if (typeof document === 'undefined' || el(SETTINGS_STYLE_ID)) return;
-  const style = document.createElement('style');
+  const d = doc();
+  if (!d || el(SETTINGS_STYLE_ID)) return;
+  const style = d.createElement('style');
   style.id = SETTINGS_STYLE_ID;
   style.textContent = css();
-  document.head.appendChild(style);
+  d.head.appendChild(style);
 }
 
 function findHost() {
+  const d = doc();
+  if (!d) return null;
   for (const selector of HOST_CANDIDATES) {
-    const host = document.querySelector(selector);
+    const host = d.querySelector(selector);
     if (host) return host;
   }
   return null;
 }
 
 function createRoot(version = '') {
-  const root = document.createElement('div');
+  const d = doc();
+  const root = d.createElement('div');
   root.id = ROOT_ID;
-  root.className = 'inline-drawer';
+  root.className = 'inline-drawer qbcc-collapsed';
   root.innerHTML = `
 <div class="inline-drawer-toggle inline-drawer-header qbcc-runtime-header">
   <div class="qbcc-runtime-title"><span>QBCC Runtime</span><span class="qbcc-runtime-version">v${String(version || '')}</span></div>
@@ -1108,7 +1185,8 @@ function createRoot(version = '') {
 }
 
 function installSettingsPanel({ toast, version = '' } = {}) {
-  if (typeof document === 'undefined') return () => {};
+  const d = doc();
+  if (!d) return () => {};
   ensureStyles();
 
   let root = el(ROOT_ID);
@@ -1116,6 +1194,8 @@ function installSettingsPanel({ toast, version = '' } = {}) {
   let disposed = false;
 
   function bind(currentRoot) {
+    if (currentRoot.dataset.qbccBound === '1') return;
+    currentRoot.dataset.qbccBound = '1';
     const url = currentRoot.querySelector('#qbcc-runtime-url');
     const api = currentRoot.querySelector('#qbcc-runtime-api');
     const model = currentRoot.querySelector('#qbcc-runtime-model');
@@ -1128,7 +1208,7 @@ function installSettingsPanel({ toast, version = '' } = {}) {
       const s = readModelSettings();
       url.value = s.url || '';
       api.value = s.apiKey || '';
-      if (s.model && ![...model.options].some(o => o.value === s.model)) model.add(new Option(s.model, s.model));
+      if (s.model && ![...model.options].some(o => o.value === s.model)) model.add(new (getHostWindow().Option)(s.model, s.model));
       model.value = s.model || '';
     }
 
@@ -1146,8 +1226,9 @@ function installSettingsPanel({ toast, version = '' } = {}) {
         const models = await fetchModels(temp);
         const current = String(model.value || readModelSettings().model || '').trim();
         model.innerHTML = '<option value=""></option>';
-        for (const name of models) model.add(new Option(name, name));
-        if (current && !models.includes(current)) model.add(new Option(current, current));
+        const OptionCtor = getHostWindow().Option;
+        for (const name of models) model.add(new OptionCtor(name, name));
+        if (current && !models.includes(current)) model.add(new OptionCtor(current, current));
         model.value = current || (models.length === 1 ? models[0] : '');
         status.textContent = `${models.length} model`;
       } catch (e) {
@@ -1166,21 +1247,25 @@ function installSettingsPanel({ toast, version = '' } = {}) {
   function mount() {
     if (disposed) return false;
     const existing = el(ROOT_ID);
-    if (existing) { root = existing; return true; }
+    if (existing) { root = existing; bind(root); return true; }
     const host = findHost();
     if (!host) return false;
     root = createRoot(version);
+    // Match the normal SillyTavern settings drawers (Kaiz/TTS/Regex style).
     host.appendChild(root);
     bind(root);
-    console.info('[QBCC Runtime] settings section mounted in Extensions panel');
+    console.info('[QBCC Runtime] settings section mounted in parent SillyTavern Extensions panel');
     return true;
   }
 
   if (!mount()) {
-    observer = new MutationObserver(() => {
-      if (mount()) { observer?.disconnect(); observer = null; }
-    });
-    observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
+    const HostMutationObserver = getHostMutationObserver();
+    if (HostMutationObserver) {
+      observer = new HostMutationObserver(() => {
+        if (mount()) { observer?.disconnect(); observer = null; }
+      });
+      observer.observe(d.documentElement || d.body, { childList: true, subtree: true });
+    }
   }
 
   return () => {
@@ -1199,9 +1284,9 @@ function focusSettingsPanel() {
   return true;
 }
 
-/* ===== core/inputAuthority.js ===== */
+/* ===== src/core/inputAuthority.js ===== */
 function getMainInput() {
-  return document.getElementById('send_textarea');
+  return getHostDocument()?.getElementById?.('send_textarea') || null;
 }
 
 function sanitizeMainInput() {
@@ -1212,7 +1297,7 @@ function sanitizeMainInput() {
     const after = sanitizeUserContent(before);
     if (after === before) return false;
     input.value = after;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(createHostEvent('input', { bubbles: true }));
     return true;
   } catch { return false; }
 }
@@ -1227,22 +1312,22 @@ function isMainSend(ev) {
 }
 
 function installInputAuthorityGate({ onSanitized } = {}) {
-  if (typeof document === 'undefined') return () => {};
+  const d = getHostDocument();
+  if (!d) return () => {};
   const capture = ev => {
     if (!isMainSend(ev)) return;
     if (sanitizeMainInput()) onSanitized?.();
   };
-  // Capture phase gives the runtime the earliest practical interception point
-  // available to a Tavern Helper/browser-side runtime before normal ST handlers.
-  document.addEventListener('click', capture, true);
-  document.addEventListener('keydown', capture, true);
+  // Parent-document capture phase runs before SillyTavern's normal send handler.
+  d.addEventListener('click', capture, true);
+  d.addEventListener('keydown', capture, true);
   return () => {
-    document.removeEventListener('click', capture, true);
-    document.removeEventListener('keydown', capture, true);
+    d.removeEventListener('click', capture, true);
+    d.removeEventListener('keydown', capture, true);
   };
 }
 
-/* ===== index.js ===== */
+/* ===== src/index.js ===== */
 const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION__';
 
 class QbccRuntimeCompanion {
@@ -1461,17 +1546,27 @@ class QbccRuntimeCompanion {
       statLoaded: !!Object.keys(this.statData || {}).length,
       kaizInstalled: isKaizInstalled(),
       model: (() => { const m = readModelSettings(); return { url: m.url, model: m.model, configured: !!(m.url && m.model) }; })(),
+      tavernHelperIframe: isTavernHelperIframe(),
+      settingsMounted: !!getHostWindow()?.document?.getElementById?.('qbcc-runtime-settings-root'),
+      hostHasPublicApi: !!getHostWindow()?.QBCC_RUNTIME,
       state: JSON.parse(JSON.stringify(this.state)),
     };
   }
 }
 
-console.info(`[QBCC Runtime] module evaluated v${VERSION}`);
+console.info(`[QBCC Runtime] module evaluated v${VERSION}; iframe=${isTavernHelperIframe()}`);
 
-if (!globalThis[INSTANCE_KEY]) {
+const hostWindow = getHostWindow();
+const existingInstance = (() => {
+  try { return hostWindow?.[INSTANCE_KEY] || globalThis[INSTANCE_KEY] || null; } catch { return globalThis[INSTANCE_KEY] || null; }
+})();
+
+if (!existingInstance) {
   const instance = new QbccRuntimeCompanion();
-  globalThis[INSTANCE_KEY] = instance;
-  globalThis.QBCC_RUNTIME = {
+  try { globalThis[INSTANCE_KEY] = instance; } catch {}
+  try { hostWindow[INSTANCE_KEY] = instance; } catch {}
+
+  const publicApi = {
     version: VERSION,
     diagnostics: () => instance.diagnostics(),
     rescanLast: () => instance.onAssistantEvent(),
@@ -1480,7 +1575,22 @@ if (!globalThis[INSTANCE_KEY]) {
     openSettings: () => focusSettingsPanel(),
     get state() { return instance.state; },
   };
-  void instance.start();
+  exposeHostGlobal('QBCC_RUNTIME', publicApi);
+  void instance.start().catch(error => {
+    console.error('[QBCC Runtime] start failed', error);
+    instance.api.toast('error', `Runtime start failed: ${error?.message || error}`);
+  });
+} else {
+  // A character-script iframe may be recreated while the parent runtime is still
+  // alive. Re-expose its public API on both realms instead of spawning duplicates.
+  const instance = existingInstance;
+  const publicApi = hostWindow?.QBCC_RUNTIME || globalThis.QBCC_RUNTIME || {
+    version: VERSION,
+    diagnostics: () => instance.diagnostics?.(),
+    openSettings: () => focusSettingsPanel(),
+  };
+  exposeHostGlobal('QBCC_RUNTIME', publicApi);
+  try { focusSettingsPanel(); } catch {}
 }
 
 })();

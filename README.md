@@ -81,7 +81,7 @@ QBCC_RUNTIME.rescanLast()
 
 This repository intentionally uses no npm runtime dependencies. Browser ESM relative imports are used so the GitHub/jsDelivr source itself is the deployable artifact.
 
-## Kaiz Agent Extension × Amon easter egg (v0.3.2)
+## Kaiz Agent Extension × Amon easter egg (v0.4.0)
 
 The companion recognizes the public `Khanhhpk/Kaiz-Agent-Extension` without blocking the extension as a whole.
 
@@ -106,7 +106,7 @@ QBCC_RUNTIME.releaseKaizAmon()
 Use the single-file bundle:
 
 ```js
-import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime.js?v=0.3.2';
+import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime.js?v=0.4.0';
 ```
 
 `dist/qbcc-runtime.js` is self-contained, so cache-busting the bundle also updates all runtime modules at once.

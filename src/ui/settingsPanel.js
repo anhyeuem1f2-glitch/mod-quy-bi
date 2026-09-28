@@ -1,21 +1,25 @@
 import { fetchModels, readModelSettings, writeModelSettings } from '../core/modelClient.js';
+import { getHostDocument, getHostMutationObserver, getHostWindow } from '../adapters/host.js';
 
 const ROOT_ID = 'qbcc-runtime-settings-root';
 const SETTINGS_STYLE_ID = 'qbcc-runtime-settings-style';
+// Official SillyTavern extension settings injection points. Tavern Helper runs
+// this script in an iframe, so these selectors are always resolved in parent.
 const HOST_CANDIDATES = ['#extensions_settings2', '#extensions_settings'];
 
-function el(id) { return document.getElementById(id); }
+function doc() { return getHostDocument(); }
+function el(id) { return doc()?.getElementById?.(id) || null; }
 
 function css() {
   return `
-#${ROOT_ID}{margin:8px 0 10px;width:100%;box-sizing:border-box}
+#${ROOT_ID}{margin:0;width:100%;box-sizing:border-box}
 #${ROOT_ID} .qbcc-runtime-header{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;gap:10px}
 #${ROOT_ID} .qbcc-runtime-title{display:flex;align-items:center;gap:8px;font-weight:700}
 #${ROOT_ID} .qbcc-runtime-version{font-size:10px;opacity:.65;font-weight:600}
 #${ROOT_ID} .qbcc-runtime-chevron{transition:transform .16s ease}
 #${ROOT_ID}.qbcc-collapsed .qbcc-runtime-chevron{transform:rotate(-90deg)}
 #${ROOT_ID}.qbcc-collapsed .qbcc-runtime-body{display:none}
-#${ROOT_ID} .qbcc-runtime-body{padding:10px 4px 4px}
+#${ROOT_ID} .qbcc-runtime-body{padding:10px 8px 6px}
 #${ROOT_ID} .qbcc-runtime-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 #${ROOT_ID} .qbcc-runtime-field{min-width:0}
 #${ROOT_ID} .qbcc-runtime-field.qbcc-full{grid-column:1 / -1}
@@ -31,25 +35,29 @@ function css() {
 }
 
 function ensureStyles() {
-  if (typeof document === 'undefined' || el(SETTINGS_STYLE_ID)) return;
-  const style = document.createElement('style');
+  const d = doc();
+  if (!d || el(SETTINGS_STYLE_ID)) return;
+  const style = d.createElement('style');
   style.id = SETTINGS_STYLE_ID;
   style.textContent = css();
-  document.head.appendChild(style);
+  d.head.appendChild(style);
 }
 
 function findHost() {
+  const d = doc();
+  if (!d) return null;
   for (const selector of HOST_CANDIDATES) {
-    const host = document.querySelector(selector);
+    const host = d.querySelector(selector);
     if (host) return host;
   }
   return null;
 }
 
 function createRoot(version = '') {
-  const root = document.createElement('div');
+  const d = doc();
+  const root = d.createElement('div');
   root.id = ROOT_ID;
-  root.className = 'inline-drawer';
+  root.className = 'inline-drawer qbcc-collapsed';
   root.innerHTML = `
 <div class="inline-drawer-toggle inline-drawer-header qbcc-runtime-header">
   <div class="qbcc-runtime-title"><span>QBCC Runtime</span><span class="qbcc-runtime-version">v${String(version || '')}</span></div>
@@ -82,7 +90,8 @@ function createRoot(version = '') {
 }
 
 export function installSettingsPanel({ toast, version = '' } = {}) {
-  if (typeof document === 'undefined') return () => {};
+  const d = doc();
+  if (!d) return () => {};
   ensureStyles();
 
   let root = el(ROOT_ID);
@@ -90,6 +99,8 @@ export function installSettingsPanel({ toast, version = '' } = {}) {
   let disposed = false;
 
   function bind(currentRoot) {
+    if (currentRoot.dataset.qbccBound === '1') return;
+    currentRoot.dataset.qbccBound = '1';
     const url = currentRoot.querySelector('#qbcc-runtime-url');
     const api = currentRoot.querySelector('#qbcc-runtime-api');
     const model = currentRoot.querySelector('#qbcc-runtime-model');
@@ -102,7 +113,7 @@ export function installSettingsPanel({ toast, version = '' } = {}) {
       const s = readModelSettings();
       url.value = s.url || '';
       api.value = s.apiKey || '';
-      if (s.model && ![...model.options].some(o => o.value === s.model)) model.add(new Option(s.model, s.model));
+      if (s.model && ![...model.options].some(o => o.value === s.model)) model.add(new (getHostWindow().Option)(s.model, s.model));
       model.value = s.model || '';
     }
 
@@ -120,8 +131,9 @@ export function installSettingsPanel({ toast, version = '' } = {}) {
         const models = await fetchModels(temp);
         const current = String(model.value || readModelSettings().model || '').trim();
         model.innerHTML = '<option value=""></option>';
-        for (const name of models) model.add(new Option(name, name));
-        if (current && !models.includes(current)) model.add(new Option(current, current));
+        const OptionCtor = getHostWindow().Option;
+        for (const name of models) model.add(new OptionCtor(name, name));
+        if (current && !models.includes(current)) model.add(new OptionCtor(current, current));
         model.value = current || (models.length === 1 ? models[0] : '');
         status.textContent = `${models.length} model`;
       } catch (e) {
@@ -140,21 +152,25 @@ export function installSettingsPanel({ toast, version = '' } = {}) {
   function mount() {
     if (disposed) return false;
     const existing = el(ROOT_ID);
-    if (existing) { root = existing; return true; }
+    if (existing) { root = existing; bind(root); return true; }
     const host = findHost();
     if (!host) return false;
     root = createRoot(version);
+    // Match the normal SillyTavern settings drawers (Kaiz/TTS/Regex style).
     host.appendChild(root);
     bind(root);
-    console.info('[QBCC Runtime] settings section mounted in Extensions panel');
+    console.info('[QBCC Runtime] settings section mounted in parent SillyTavern Extensions panel');
     return true;
   }
 
   if (!mount()) {
-    observer = new MutationObserver(() => {
-      if (mount()) { observer?.disconnect(); observer = null; }
-    });
-    observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
+    const HostMutationObserver = getHostMutationObserver();
+    if (HostMutationObserver) {
+      observer = new HostMutationObserver(() => {
+        if (mount()) { observer?.disconnect(); observer = null; }
+      });
+      observer.observe(d.documentElement || d.body, { childList: true, subtree: true });
+    }
   }
 
   return () => {

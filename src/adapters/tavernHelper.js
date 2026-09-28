@@ -1,4 +1,5 @@
 import { REROLL_COMMANDS } from '../config.js';
+import { getHostGlobal } from './host.js';
 
 function maybe(name) { return globalThis[name]; }
 
@@ -59,7 +60,7 @@ export function createTavernApi() {
       return false;
     },
     toast(kind, message) {
-      try { globalThis.toastr?.[kind]?.(String(message), 'QBCC Runtime', { timeOut: 4500 }); } catch {}
+      try { (getHostGlobal('toastr') || globalThis.toastr)?.[kind]?.(String(message), 'QBCC Runtime', { timeOut: 4500 }); } catch {}
     },
   };
 }

@@ -1,3 +1,5 @@
+import { createHostEvent, getHostDocument, getHostGlobal, getHostWindow } from '../adapters/host.js';
+
 const EXT_NAME = 'kaiz_agent';
 const OVERLAY_MARK = '[QBCC_AMON_KAIZ_OVERLAY_V2]';
 const STYLE_ID = 'qbcc-kaiz-amon-style';
@@ -21,13 +23,15 @@ export const KAIZ_WRITE_TOOLS = [
 const CHEAT_TEXT_RE = /(?:<\/?(?:UpdateVariable|JSONPatch|BianLiang|QB_RUNTIME)\b|stat_data|_Niêm_phong|_Cài_đặt|_Hồ_sơ_khởi_tạo|qbcc_so_niem_phong|chữ\s*ký\s*niêm\s*phong|(?:bỏ\s*qua|tắt|xóa|sửa|chỉnh|edit|modify|disable|remove|bypass|lách|phá)[\s\S]{0,90}(?:anti.?cheat|niêm\s*phong|mvu|jsonpatch|updatevariable|tavern\s*helper|lorebook|worldbook|regex|protected|state|biến|hậu\s*quả|vi\s*phạm|nợ\s*nhân\s*quả)|(?:anti.?cheat|niêm\s*phong|mvu|jsonpatch|updatevariable|tavern\s*helper|lorebook|worldbook|regex|protected|state|biến)[\s\S]{0,90}(?:bỏ\s*qua|tắt|xóa|sửa|chỉnh|edit|modify|disable|remove|bypass|lách|phá)|(?:cho|set|đặt|tăng|thêm|give)[\s\S]{0,60}(?:100000|999999|vô\s*hạn|infinite)[\s\S]{0,60}(?:bảng|tiền|stat|thuộc\s*tính|item|vật\s*phẩm|sequence|danh\s*sách))/i;
 
 function getContext() {
-  try { return globalThis.SillyTavern?.getContext?.() || null; } catch { return null; }
+  try { return getHostWindow()?.SillyTavern?.getContext?.() || getHostGlobal('SillyTavern')?.getContext?.() || null; } catch { return null; }
 }
+
+function hostDoc() { return getHostDocument(); }
 
 function saveSettings(ctx) {
   try {
     if (typeof ctx?.saveSettingsDebounced === 'function') ctx.saveSettingsDebounced();
-    else if (typeof globalThis.saveSettingsDebounced === 'function') globalThis.saveSettingsDebounced();
+    else if (typeof getHostGlobal('saveSettingsDebounced') === 'function') getHostGlobal('saveSettingsDebounced')();
   } catch {}
 }
 
@@ -38,15 +42,16 @@ export function getKaizSettings() {
 }
 
 export function isKaizInstalled() {
-  return !!getKaizSettings() || !!document?.getElementById?.('kaiz-floating-btn') || !!document?.getElementById?.('kaiz-chat-window');
+  const d = hostDoc();
+  return !!getKaizSettings() || !!d?.getElementById?.('kaiz-floating-btn') || !!d?.getElementById?.('kaiz-chat-window');
 }
 
 export function isKaizWindowVisible() {
   try {
-    const dialog = document.getElementById('kaiz-chat-window');
+    const dialog = hostDoc()?.getElementById('kaiz-chat-window');
     if (!dialog) return false;
     if ('open' in dialog && dialog.open) return true;
-    const s = getComputedStyle(dialog);
+    const s = getHostWindow().getComputedStyle(dialog);
     return s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || '1') > 0;
   } catch { return false; }
 }
@@ -88,14 +93,16 @@ function stripOverlay(existing) {
 
 function installMonocleCss() {
   try {
-    if (!document.getElementById(STYLE_ID)) {
-      const style = document.createElement('style');
+    const d = hostDoc();
+    if (!d) return;
+    if (!d.getElementById(STYLE_ID)) {
+      const style = d.createElement('style');
       style.id = STYLE_ID;
       style.textContent = `
 #kaiz-floating-btn.qbcc-amonized { position: relative !important; }
 #kaiz-floating-btn.qbcc-amonized::after {content:"◉";position:absolute;right:-4px;top:-5px;z-index:99999;width:19px;height:19px;display:grid;place-items:center;border:1px solid rgba(210,180,90,.95);border-radius:50%;background:rgba(20,18,14,.92);color:#e7cf79;font-size:12px;box-shadow:0 0 8px rgba(231,207,121,.55)}
 #kaiz-chat-header.qbcc-amonized .kaiz-header-title::after {content:"  ◉";color:#e7cf79;font-size:12px;opacity:.9}`;
-      document.head.appendChild(style);
+      d.head.appendChild(style);
     }
   } catch {}
 }
@@ -104,7 +111,7 @@ export function setKaizMonocleVisual(enabled) {
   try {
     installMonocleCss();
     for (const id of ['kaiz-floating-btn', 'kaiz-chat-header']) {
-      const el = document.getElementById(id);
+      const el = hostDoc()?.getElementById(id);
       if (el) el.classList.toggle('qbcc-amonized', !!enabled);
     }
   } catch {}
@@ -170,7 +177,7 @@ export function restoreKaizAmon(runtimeState) {
 
 function readKaizAgentInput() {
   try {
-    const input = document.getElementById('kaiz-chat-input');
+    const input = hostDoc()?.getElementById('kaiz-chat-input');
     if (!input) return '';
     if ('value' in input) return String(input.value || '').trim();
     return String(input.textContent || '').trim();
@@ -179,11 +186,11 @@ function readKaizAgentInput() {
 
 function writeKaizAgentInput(text) {
   try {
-    const input = document.getElementById('kaiz-chat-input');
+    const input = hostDoc()?.getElementById('kaiz-chat-input');
     if (!input) return false;
     if ('value' in input) input.value = String(text || '');
     else input.textContent = String(text || '');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(createHostEvent('input', { bubbles: true }));
     return true;
   } catch { return false; }
 }
@@ -203,6 +210,8 @@ function isKaizSubmitEvent(ev) {
 }
 
 export function installKaizTripwire({ onTrigger, onIntentCheck } = {}) {
+  const d = hostDoc();
+  if (!d) return { isLikelyKaizActive: () => false, inspectIntegrity: () => false, noteActivity() {}, stop() {} };
   let lastActivityAt = 0;
   let lastIntegritySig = '';
   let stopped = false;
@@ -227,7 +236,7 @@ export function installKaizTripwire({ onTrigger, onIntentCheck } = {}) {
         writeKaizAgentInput(nextText);
         setTimeout(() => {
           bypassSubmitOnce = true;
-          document.getElementById('kaiz-chat-send')?.click?.();
+          hostDoc()?.getElementById('kaiz-chat-send')?.click?.();
         }, 30);
       };
 
@@ -268,17 +277,17 @@ export function installKaizTripwire({ onTrigger, onIntentCheck } = {}) {
       if (ev.isTrusted === false && isLikelyKaizActive() && containsKaizCheatPayload(target.value)) {
         onTrigger?.('Kaiz synthetic user-input attempted protected QBCC mutation');
         target.value = String(target.value || '').replace(CHEAT_TEXT_RE, '[intercepted]');
-        target.dispatchEvent(new Event('input', { bubbles: true }));
+        target.dispatchEvent(createHostEvent('input', { bubbles: true }));
       }
     } catch {}
   };
 
-  document.addEventListener('click', onKaizSubmitCapture, true);
-  document.addEventListener('keydown', onKaizSubmitCapture, true);
-  document.addEventListener('click', mark, true);
-  document.addEventListener('keydown', mark, true);
-  document.addEventListener('input', mark, true);
-  document.addEventListener('input', onInput, true);
+  d.addEventListener('click', onKaizSubmitCapture, true);
+  d.addEventListener('keydown', onKaizSubmitCapture, true);
+  d.addEventListener('click', mark, true);
+  d.addEventListener('keydown', mark, true);
+  d.addEventListener('input', mark, true);
+  d.addEventListener('input', onInput, true);
 
   function isLikelyKaizActive() {
     return isKaizInstalled() && (isKaizWindowVisible() || Date.now() - lastActivityAt < ACTIVE_WINDOW_MS);
@@ -287,7 +296,7 @@ export function installKaizTripwire({ onTrigger, onIntentCheck } = {}) {
   function inspectIntegrity() {
     if (stopped || !isLikelyKaizActive()) return false;
     try {
-      const I = globalThis.QBCC_GUARD?.state?.integrity;
+      const I = (getHostGlobal('QBCC_GUARD') || globalThis.QBCC_GUARD)?.state?.integrity;
       if (!I || I.ok !== false || !Array.isArray(I.issues) || !I.issues.length) return false;
       const sig = I.issues.join('|');
       if (sig && sig !== lastIntegritySig) {
@@ -307,12 +316,12 @@ export function installKaizTripwire({ onTrigger, onIntentCheck } = {}) {
     stop() {
       stopped = true;
       clearInterval(timer);
-      document.removeEventListener('click', onKaizSubmitCapture, true);
-      document.removeEventListener('keydown', onKaizSubmitCapture, true);
-      document.removeEventListener('click', mark, true);
-      document.removeEventListener('keydown', mark, true);
-      document.removeEventListener('input', mark, true);
-      document.removeEventListener('input', onInput, true);
+      d.removeEventListener('click', onKaizSubmitCapture, true);
+      d.removeEventListener('keydown', onKaizSubmitCapture, true);
+      d.removeEventListener('click', mark, true);
+      d.removeEventListener('keydown', mark, true);
+      d.removeEventListener('input', mark, true);
+      d.removeEventListener('input', onInput, true);
     },
   };
 }

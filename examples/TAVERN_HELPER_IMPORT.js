@@ -1,3 +1,3 @@
-// QBCC Runtime Companion — external source v0.3.2
+// QBCC Runtime Companion — external source v0.4.0
 // Single-file bundle: no relative module imports.
-import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime.js?v=0.3.2';
+import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime.js?v=0.4.0';

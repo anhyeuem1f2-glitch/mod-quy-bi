@@ -7,6 +7,7 @@ import { buildAdamHiddenPrompt } from '../src/entities/adam.js';
 import { classifyLoreEntry } from '../src/core/loreFirewall.js';
 import { buildKaizAmonOverlay, containsKaizCheatPayload, KAIZ_WRITE_TOOLS } from '../src/integrations/kaizAmon.js';
 import { normalizeApiBase } from '../src/core/modelClient.js';
+import { exposeHostGlobal, getHostDocument, getHostWindow, isTavernHelperIframe } from '../src/adapters/host.js';
 
 function stat(seq = 10, extra = {}) {
   return {
@@ -75,4 +76,25 @@ test('Kaiz natural-language cheat intent is caught', () => {
 test('OpenAI-compatible URL normalization accepts full completion URL', () => {
   assert.equal(normalizeApiBase('http://127.0.0.1:1234/v1/chat/completions'), 'http://127.0.0.1:1234/v1');
   assert.equal(normalizeApiBase('http://127.0.0.1:1234/v1/models'), 'http://127.0.0.1:1234/v1');
+});
+
+
+test('Tavern Helper iframe bridge selects parent SillyTavern window', () => {
+  const old = Object.getOwnPropertyDescriptor(globalThis, 'parent');
+  const fakeDocument = { marker: 'parent-doc' };
+  const fakeParent = { document: fakeDocument };
+  Object.defineProperty(globalThis, 'parent', { value: fakeParent, configurable: true });
+  try {
+    assert.equal(getHostWindow(), fakeParent);
+    assert.equal(getHostDocument(), fakeDocument);
+    assert.equal(isTavernHelperIframe(), true);
+    const api = { version: 'test' };
+    exposeHostGlobal('__QBCC_TEST__', api);
+    assert.equal(fakeParent.__QBCC_TEST__, api);
+    assert.equal(globalThis.__QBCC_TEST__, api);
+  } finally {
+    delete globalThis.__QBCC_TEST__;
+    if (old) Object.defineProperty(globalThis, 'parent', old);
+    else delete globalThis.parent;
+  }
 });

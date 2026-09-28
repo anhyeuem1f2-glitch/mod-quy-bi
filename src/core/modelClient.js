@@ -1,3 +1,5 @@
+import { getHostWindow } from '../adapters/host.js';
+
 const STORAGE_KEY = 'qbcc_runtime_model_settings_v1';
 
 const DEFAULTS = Object.freeze({
@@ -7,7 +9,7 @@ const DEFAULTS = Object.freeze({
 });
 
 function safeStorage() {
-  try { return globalThis.localStorage || null; } catch { return null; }
+  try { return getHostWindow()?.localStorage || globalThis.localStorage || null; } catch { return null; }
 }
 
 export function readModelSettings() {

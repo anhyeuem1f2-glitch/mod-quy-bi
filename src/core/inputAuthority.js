@@ -1,7 +1,8 @@
 import { sanitizeUserContent } from './anticheat.js';
+import { createHostEvent, getHostDocument } from '../adapters/host.js';
 
 function getMainInput() {
-  return document.getElementById('send_textarea');
+  return getHostDocument()?.getElementById?.('send_textarea') || null;
 }
 
 function sanitizeMainInput() {
@@ -12,7 +13,7 @@ function sanitizeMainInput() {
     const after = sanitizeUserContent(before);
     if (after === before) return false;
     input.value = after;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(createHostEvent('input', { bubbles: true }));
     return true;
   } catch { return false; }
 }
@@ -27,17 +28,17 @@ function isMainSend(ev) {
 }
 
 export function installInputAuthorityGate({ onSanitized } = {}) {
-  if (typeof document === 'undefined') return () => {};
+  const d = getHostDocument();
+  if (!d) return () => {};
   const capture = ev => {
     if (!isMainSend(ev)) return;
     if (sanitizeMainInput()) onSanitized?.();
   };
-  // Capture phase gives the runtime the earliest practical interception point
-  // available to a Tavern Helper/browser-side runtime before normal ST handlers.
-  document.addEventListener('click', capture, true);
-  document.addEventListener('keydown', capture, true);
+  // Parent-document capture phase runs before SillyTavern's normal send handler.
+  d.addEventListener('click', capture, true);
+  d.addEventListener('keydown', capture, true);
   return () => {
-    document.removeEventListener('click', capture, true);
-    document.removeEventListener('keydown', capture, true);
+    d.removeEventListener('click', capture, true);
+    d.removeEventListener('keydown', capture, true);
   };
 }

@@ -16,6 +16,7 @@ import { activateKaizAmon, ensureKaizAmonApplied, restoreKaizAmon, installKaizTr
 import { analyzeNarrativeRuntime, classifyKaizCheatIntent, readModelSettings } from './core/modelClient.js';
 import { installSettingsPanel, focusSettingsPanel } from './ui/settingsPanel.js';
 import { installInputAuthorityGate } from './core/inputAuthority.js';
+import { exposeHostGlobal, getHostWindow, isTavernHelperIframe } from './adapters/host.js';
 
 const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION__';
 
@@ -235,17 +236,27 @@ class QbccRuntimeCompanion {
       statLoaded: !!Object.keys(this.statData || {}).length,
       kaizInstalled: isKaizInstalled(),
       model: (() => { const m = readModelSettings(); return { url: m.url, model: m.model, configured: !!(m.url && m.model) }; })(),
+      tavernHelperIframe: isTavernHelperIframe(),
+      settingsMounted: !!getHostWindow()?.document?.getElementById?.('qbcc-runtime-settings-root'),
+      hostHasPublicApi: !!getHostWindow()?.QBCC_RUNTIME,
       state: JSON.parse(JSON.stringify(this.state)),
     };
   }
 }
 
-console.info(`[QBCC Runtime] module evaluated v${VERSION}`);
+console.info(`[QBCC Runtime] module evaluated v${VERSION}; iframe=${isTavernHelperIframe()}`);
 
-if (!globalThis[INSTANCE_KEY]) {
+const hostWindow = getHostWindow();
+const existingInstance = (() => {
+  try { return hostWindow?.[INSTANCE_KEY] || globalThis[INSTANCE_KEY] || null; } catch { return globalThis[INSTANCE_KEY] || null; }
+})();
+
+if (!existingInstance) {
   const instance = new QbccRuntimeCompanion();
-  globalThis[INSTANCE_KEY] = instance;
-  globalThis.QBCC_RUNTIME = {
+  try { globalThis[INSTANCE_KEY] = instance; } catch {}
+  try { hostWindow[INSTANCE_KEY] = instance; } catch {}
+
+  const publicApi = {
     version: VERSION,
     diagnostics: () => instance.diagnostics(),
     rescanLast: () => instance.onAssistantEvent(),
@@ -254,7 +265,22 @@ if (!globalThis[INSTANCE_KEY]) {
     openSettings: () => focusSettingsPanel(),
     get state() { return instance.state; },
   };
-  void instance.start();
+  exposeHostGlobal('QBCC_RUNTIME', publicApi);
+  void instance.start().catch(error => {
+    console.error('[QBCC Runtime] start failed', error);
+    instance.api.toast('error', `Runtime start failed: ${error?.message || error}`);
+  });
+} else {
+  // A character-script iframe may be recreated while the parent runtime is still
+  // alive. Re-expose its public API on both realms instead of spawning duplicates.
+  const instance = existingInstance;
+  const publicApi = hostWindow?.QBCC_RUNTIME || globalThis.QBCC_RUNTIME || {
+    version: VERSION,
+    diagnostics: () => instance.diagnostics?.(),
+    openSettings: () => focusSettingsPanel(),
+  };
+  exposeHostGlobal('QBCC_RUNTIME', publicApi);
+  try { focusSettingsPanel(); } catch {}
 }
 
 export { QbccRuntimeCompanion };

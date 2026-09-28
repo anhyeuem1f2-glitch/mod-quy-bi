@@ -1,3 +1,5 @@
+import { getHostDocument, getHostMutationObserver } from './host.js';
+
 const RE = /<QB_HIDE>([\s\S]*?)<\/QB_HIDE>/gi;
 
 function redactElement(el) {
@@ -9,17 +11,19 @@ function redactElement(el) {
 }
 
 export function installDomRedactor() {
-  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return () => {};
+  const d = getHostDocument();
+  const HostMutationObserver = getHostMutationObserver();
+  if (!d || !HostMutationObserver) return () => {};
   const scan = root => {
     try {
       if (root?.matches?.('.mes_text')) redactElement(root);
       root?.querySelectorAll?.('.mes_text')?.forEach(redactElement);
     } catch {}
   };
-  scan(document);
-  const ob = new MutationObserver(mutations => {
+  scan(d);
+  const ob = new HostMutationObserver(mutations => {
     for (const m of mutations) for (const node of m.addedNodes || []) if (node?.nodeType === 1) scan(node);
   });
-  ob.observe(document.body, { childList: true, subtree: true });
+  ob.observe(d.body, { childList: true, subtree: true });
   return () => ob.disconnect();
 }
