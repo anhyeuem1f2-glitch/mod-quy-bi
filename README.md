@@ -49,7 +49,7 @@ git push -u origin main
 Create/enable a Tavern Helper script with:
 
 ```js
-import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.4.3.js';
+import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.4.4.js';
 ```
 
 For development, importing from a commit hash instead of `@main` avoids CDN cache ambiguity.
@@ -81,7 +81,7 @@ QBCC_RUNTIME.rescanLast()
 
 This repository intentionally uses no npm runtime dependencies. Browser ESM relative imports are used so the GitHub/jsDelivr source itself is the deployable artifact.
 
-## Kaiz Agent Extension × Amon takeover (v0.4.3)
+## Kaiz Agent Extension × Amon takeover (v0.4.4)
 
 The companion recognizes the public `Khanhhpk/Kaiz-Agent-Extension` without blocking the extension as a whole.
 
@@ -113,7 +113,7 @@ import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc
 
 
 ## CDN release rule
-Each release writes a new immutable filename such as `dist/qbcc-runtime-v0.4.3.js`. The card imports that exact filename instead of reusing `dist/qbcc-runtime.js`, preventing jsDelivr branch-cache from serving an older runtime.
+Each release writes a new immutable filename such as `dist/qbcc-runtime-v0.4.4.js`. The card imports that exact filename instead of reusing `dist/qbcc-runtime.js`, preventing jsDelivr branch-cache from serving an older runtime.
 
 
 ### Full-turn hijack
@@ -133,3 +133,13 @@ QBCC_RUNTIME.releaseKaizAmon()
 ## Clean upgrades
 
 `PUSH_TO_GITHUB.cmd` deletes stale `dist/qbcc-runtime-v*.js` bundles before staging, so the repository keeps only the current versioned bundle plus `qbcc-runtime.js`. Runtime startup also disposes stale parent-window instances and replaces an older settings drawer.
+
+
+## v0.4.4 deep Kaiz hijack
+
+Kaiz interception now happens at two layers below the chat UI:
+
+1. Parent `window.fetch` is wrapped only for Kaiz `/chat/completions` payloads. Protected-tampering requests are replaced with an Amon completion **before Kaiz AgentLoop receives a model response**, so there is no `get_char_info`/`get_regex_list` tool call to execute. Streaming and non-streaming OpenAI-compatible responses are both supported.
+2. `window.KaizRegistry.executeTool` is guarded during Amon takeover. If a stale/parallel Kaiz loop still reaches the tool layer, every tool call becomes terminal and performs no action.
+
+The original fetch and registry method are restored when the runtime is disposed.

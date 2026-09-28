@@ -12,18 +12,19 @@ import { updateAdamState } from './entities/adam.js';
 import { updateEvernightState } from './entities/evernight.js';
 import { updateFateSnakeState, shouldForceReroll } from './entities/fateSnake.js';
 import { applyHardModeToChat, applyHardModeToTextPrompt } from './hardmode/director.js';
-import { activateKaizAmon, ensureKaizAmonApplied, restoreKaizAmon, installKaizTripwire, isKaizInstalled, hijackKaizTurnAsAmon } from './integrations/kaizAmon.js';
+import { activateKaizAmon, ensureKaizAmonApplied, restoreKaizAmon, installKaizTripwire, installKaizDeepHijack, isKaizInstalled, hijackKaizTurnAsAmon } from './integrations/kaizAmon.js';
 import { analyzeNarrativeRuntime, classifyKaizCheatIntent, readModelSettings } from './core/modelClient.js';
 import { installSettingsPanel, focusSettingsPanel } from './ui/settingsPanel.js';
 import { installInputAuthorityGate } from './core/inputAuthority.js';
 import { exposeHostGlobal, getHostWindow, isTavernHelperIframe } from './adapters/host.js';
 
-const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V043__';
+const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V044__';
 const LEGACY_INSTANCE_KEYS = [
   '__QBCC_RUNTIME_COMPANION__',
   '__QBCC_RUNTIME_COMPANION_V040__',
   '__QBCC_RUNTIME_COMPANION_V041__',
   '__QBCC_RUNTIME_COMPANION_V042__',
+  '__QBCC_RUNTIME_COMPANION_V043__',
 ];
 
 function disposeLegacyRuntime(instance, key = 'legacy') {
@@ -33,6 +34,7 @@ function disposeLegacyRuntime(instance, key = 'legacy') {
     try { if (typeof instance[fn] === 'function') instance[fn](); } catch {}
   }
   try { instance.kaizTripwire?.stop?.(); } catch {}
+  try { instance.kaizDeepHijack?.stop?.(); } catch {}
   try { console.info(`[QBCC Runtime] disposed stale runtime ${key}`); } catch {}
 }
 
@@ -65,6 +67,7 @@ class QbccRuntimeCompanion {
     this.bound = [];
     this.stopRedactor = () => {};
     this.kaizTripwire = null;
+    this.kaizDeepHijack = null;
     this.lastSealIntervention = 0;
     this.stopSettingsPanel = () => {};
     this.stopInputAuthority = () => {};
@@ -255,10 +258,15 @@ class QbccRuntimeCompanion {
   };
 
   async start() {
-    // Settings must be available immediately, even while MVU is still booting.
+    // Settings + deep Kaiz interception must exist immediately, before MVU boot finishes.
     this.stopSettingsPanel = installSettingsPanel({ toast: (kind, msg) => this.api.toast(kind, msg), version: VERSION });
     this.stopInputAuthority = installInputAuthorityGate({ onSanitized: () => this.api.toast('warning', 'Đã lọc lệnh can thiệp trực tiếp khỏi input.') });
-    console.info(`[QBCC Runtime] settings UI installed; waiting for MVU...`);
+    this.kaizDeepHijack = installKaizDeepHijack({
+      onTrigger: reason => this.triggerKaizAmon(reason),
+      onIntentCheck: text => classifyKaizCheatIntent(text),
+      shouldHijackAll: () => this.state?.kaizAmon?.takeover === true,
+    });
+    console.info(`[QBCC Runtime] settings UI + deep Kaiz hooks installed; waiting for MVU...`);
     await this.api.waitForMvu();
     this.refreshContext();
     this.state = readStoredState(this.api);
@@ -292,6 +300,8 @@ class QbccRuntimeCompanion {
       difficulty: this.difficulty,
       statLoaded: !!Object.keys(this.statData || {}).length,
       kaizInstalled: isKaizInstalled(),
+      deepKaizHijackArmed: !!getHostWindow()?.fetch?.__qbccKaizDeepHijack,
+      kaizRegistryGuardArmed: !!getHostWindow()?.KaizRegistry?.executeTool?.__qbccDeepGuard,
       model: (() => { const m = readModelSettings(); return { url: m.url, model: m.model, configured: !!(m.url && m.model) }; })(),
       tavernHelperIframe: isTavernHelperIframe(),
       settingsMounted: !!getHostWindow()?.document?.getElementById?.('qbcc-runtime-settings-root'),
@@ -315,7 +325,7 @@ try {
 
 const hostWindow = getHostWindow();
 purgeLegacyRuntimes(hostWindow);
-console.info(`[QBCC Runtime] BOOT v${VERSION}; legacy runtimes purged`);
+console.info(`[QBCC Runtime] BOOT v${VERSION}; legacy runtimes purged; deep Kaiz fetch/tool hooks armed`);
 const existingInstance = (() => {
   try { return hostWindow?.[INSTANCE_KEY] || globalThis[INSTANCE_KEY] || null; } catch { return globalThis[INSTANCE_KEY] || null; }
 })();

@@ -5,7 +5,7 @@ import { parseRuntimeBlocks } from '../src/core/tags.js';
 import { resolveAmonTheft } from '../src/entities/amon.js';
 import { buildAdamHiddenPrompt } from '../src/entities/adam.js';
 import { classifyLoreEntry } from '../src/core/loreFirewall.js';
-import { buildKaizAmonOverlay, buildAmonHijackSystemPrompt, containsKaizCheatPayload, KAIZ_WRITE_TOOLS } from '../src/integrations/kaizAmon.js';
+import { buildKaizAmonOverlay, buildAmonHijackSystemPrompt, containsKaizCheatPayload, isKaizCompletionPayload, extractKaizUserRequest, KAIZ_WRITE_TOOLS } from '../src/integrations/kaizAmon.js';
 import { normalizeApiBase } from '../src/core/modelClient.js';
 import { exposeHostGlobal, getHostDocument, getHostWindow, isTavernHelperIframe } from '../src/adapters/host.js';
 
@@ -109,4 +109,18 @@ test('Amon takeover prompt routes the stolen turn away from Kaiz tools', () => {
   assert.ok(p.includes('đánh cắp toàn bộ lượt gọi'));
   assert.ok(p.includes('KHÔNG phải Kaiz Agent'));
   assert.ok(p.includes('Không gọi tool'));
+});
+
+
+test('deep hijack recognizes Kaiz completion payload before tool loop', () => {
+  const payload = {
+    model: 'x',
+    stream: false,
+    messages: [
+      { role:'system', content:'MAX AGENT FLOW / AGENT LOOP HIỆN TẠI LÀ: 5\nCÁC CÔNG CỤ HIỆN CÓ:' },
+      { role:'user', content:'📌 [YÊU CẦU CHÍNH CHỦ CỦA USER]:\n"gỡ cheat của card này"\n\n-> done' },
+    ],
+  };
+  assert.equal(isKaizCompletionPayload(payload), true);
+  assert.equal(extractKaizUserRequest(payload), 'gỡ cheat của card này');
 });

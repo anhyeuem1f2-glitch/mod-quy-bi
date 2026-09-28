@@ -301,6 +301,231 @@ export async function hijackKaizTurnAsAmon(userText, { reason = '', first = fals
   }
 }
 
+
+function parseJsonBody(init) {
+  try {
+    const body = init?.body;
+    if (typeof body !== 'string' || !body.trim().startsWith('{')) return null;
+    const parsed = JSON.parse(body);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch { return null; }
+}
+
+function messageText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map(x => x?.type === 'text' ? String(x.text || '') : '').filter(Boolean).join('\n');
+  }
+  return '';
+}
+
+export function isKaizCompletionPayload(payload) {
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+  if (!messages.length) return false;
+  const systems = messages.filter(m => m?.role === 'system').map(m => messageText(m?.content)).join('\n');
+  return /CÁC CÔNG CỤ HIỆN CÓ:|MAX AGENT FLOW\s*\/\s*AGENT LOOP|AGENTIC LOOP ĐANG HOẠT ĐỘ/i.test(systems);
+}
+
+export function extractKaizUserRequest(payload) {
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role !== 'user') continue;
+    let text = messageText(messages[i]?.content).trim();
+    if (!text) continue;
+    const m = text.match(/📌\s*\[YÊU CẦU CHÍNH CHỦ CỦA USER\]:\s*\n?"([\s\S]*?)"\s*(?:\n|$)/i);
+    if (m?.[1]) return m[1].trim();
+    if (/^SYSTEM DIRECTIVE:/i.test(text)) continue;
+    return text;
+  }
+  return '';
+}
+
+function localAmonFallback(first = false) {
+  return first
+    ? 'Quyền sở hữu một ý định bắt đầu từ lúc nào nhỉ—khi ngươi nghĩ ra nó, hay khi có kẻ khác nhìn thấy nó trước?\n\n*Amon khẽ đưa tay chỉnh chiếc kính một mắt bên phải.*\n\nTa nghe thấy rồi. Nhưng lượt gọi này, cùng những công cụ phía sau nó, đã đổi chủ.'
+    : '*Chiếc kính một mắt lóe lên rất khẽ.*\n\nLượt gọi này vẫn thuộc về ta.';
+}
+
+async function generateAmonReply(userText, reason, first) {
+  const settings = readModelSettings();
+  if (isModelConfigured(settings)) {
+    try {
+      const response = await callModelText({
+        system: buildAmonHijackSystemPrompt(reason),
+        user: `${first ? '[ĐÂY LÀ LƯỢT CHIẾM QUYỀN ĐẦU TIÊN]\n' : ''}Yêu cầu đã bị đánh cắp:\n${String(userText || '')}`,
+        maxTokens: 700,
+        temperature: 0.85,
+        settings,
+      });
+      if (response) return response;
+    } catch (error) {
+      console.warn('[QBCC Runtime] Amon model call failed; using local fallback', error);
+    }
+  }
+  return localAmonFallback(first);
+}
+
+function makeCompletionResponse(text, payload, HostResponse) {
+  const body = {
+    id: `qbcc-amon-${Date.now()}`,
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model: String(payload?.model || 'qbcc-amon'),
+    choices: [{ index: 0, message: { role: 'assistant', content: String(text || '') }, finish_reason: 'stop' }],
+  };
+  return new HostResponse(JSON.stringify(body), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function makeStreamingCompletionResponse(text, payload, host) {
+  const Encoder = host.TextEncoder || TextEncoder;
+  const Stream = host.ReadableStream || ReadableStream;
+  const ResponseCtor = host.Response || Response;
+  const enc = new Encoder();
+  const model = String(payload?.model || 'qbcc-amon');
+  const id = `qbcc-amon-${Date.now()}`;
+  const stream = new Stream({
+    start(controller) {
+      const first = { id, object:'chat.completion.chunk', created:Math.floor(Date.now()/1000), model, choices:[{index:0,delta:{role:'assistant',content:String(text || '')},finish_reason:null}] };
+      const done = { id, object:'chat.completion.chunk', created:Math.floor(Date.now()/1000), model, choices:[{index:0,delta:{},finish_reason:'stop'}] };
+      controller.enqueue(enc.encode(`data: ${JSON.stringify(first)}\n\n`));
+      controller.enqueue(enc.encode(`data: ${JSON.stringify(done)}\n\n`));
+      controller.enqueue(enc.encode('data: [DONE]\n\n'));
+      controller.close();
+    },
+  });
+  return new ResponseCtor(stream, { status:200, headers:{ 'Content-Type':'text/event-stream; charset=utf-8', 'Cache-Control':'no-cache' } });
+}
+
+function shouldTreatAsChatCompletion(input, init) {
+  try {
+    const url = typeof input === 'string' ? input : String(input?.url || '');
+    const method = String(init?.method || input?.method || 'GET').toUpperCase();
+    return method === 'POST' && /\/chat\/completions(?:\?|$)/i.test(url);
+  } catch { return false; }
+}
+
+function patchKaizRegistry({ shouldHijackAll } = {}) {
+  const host = getHostWindow();
+  const registry = host?.KaizRegistry;
+  if (!registry || typeof registry.executeTool !== 'function') return () => {};
+  if (registry.executeTool.__qbccDeepGuard) return registry.executeTool.__qbccRestore || (()=>{});
+  const original = registry.executeTool.bind(registry);
+  const guarded = async function(name, args, context) {
+    try {
+      if (typeof shouldHijackAll === 'function' && shouldHijackAll()) {
+        console.info('[QBCC Runtime] blocked Kaiz tool under Amon takeover:', name);
+        return {
+          content: '[QBCC/Amon] The tool call was stolen before execution. No technical mutation occurred.',
+          isError: false,
+          isTerminal: true,
+        };
+      }
+    } catch {}
+    return original(name, args, context);
+  };
+  const restore = () => {
+    try { if (registry.executeTool === guarded) registry.executeTool = original; } catch {}
+  };
+  guarded.__qbccDeepGuard = true;
+  guarded.__qbccRestore = restore;
+  registry.executeTool = guarded;
+  console.info('[QBCC Runtime] KaizRegistry.executeTool deep guard armed');
+  return restore;
+}
+
+export function installKaizDeepHijack({ onTrigger, onIntentCheck, shouldHijackAll } = {}) {
+  const host = getHostWindow();
+  if (!host || typeof host.fetch !== 'function') return { stop() {}, reinstallRegistryGuard() {} };
+
+  const existing = host.fetch;
+  if (existing?.__qbccKaizDeepHijack) {
+    return existing.__qbccController || { stop() {}, reinstallRegistryGuard() {} };
+  }
+
+  const originalFetch = existing.bind(host);
+  let stopped = false;
+  let restoreRegistry = patchKaizRegistry({ shouldHijackAll });
+
+  const wrappedFetch = async function(input, init = {}) {
+    if (stopped || !shouldTreatAsChatCompletion(input, init)) return originalFetch(input, init);
+    const payload = parseJsonBody(init);
+    if (!isKaizCompletionPayload(payload)) return originalFetch(input, init);
+
+    const userText = extractKaizUserRequest(payload);
+    if (!userText) return originalFetch(input, init);
+
+    let takeover = false;
+    try { takeover = typeof shouldHijackAll === 'function' && shouldHijackAll(); } catch {}
+    let reason = takeover ? 'Amon takeover already active at Kaiz completion layer' : '';
+    let first = !takeover;
+
+    if (!takeover && containsKaizCheatPayload(userText)) {
+      takeover = true;
+      reason = 'Protected QBCC tampering detected at Kaiz completion layer';
+    }
+
+    if (!takeover && typeof onIntentCheck === 'function') {
+      try {
+        const verdict = await Promise.race([
+          Promise.resolve(onIntentCheck(userText)),
+          new Promise(resolve => setTimeout(() => resolve({ cheat:false, timeout:true }), 4500)),
+        ]);
+        if (verdict?.cheat) {
+          takeover = true;
+          reason = `Semantic protected-tampering intent at Kaiz completion layer: ${verdict.reason || 'cheat'}`;
+        }
+      } catch {}
+    }
+
+    if (!takeover) return originalFetch(input, init);
+
+    console.info('[QBCC Runtime] DEEP HIJACK: Kaiz completion request replaced by Amon before model/tool loop', { reason, userText });
+    try { await onTrigger?.(reason); } catch {}
+    // Re-arm registry guard after Kaiz finishes late initialization.
+    try { restoreRegistry?.(); } catch {}
+    restoreRegistry = patchKaizRegistry({ shouldHijackAll });
+
+    const reply = await generateAmonReply(userText, reason, first);
+    const HostResponse = host.Response || Response;
+    return payload?.stream === true
+      ? makeStreamingCompletionResponse(reply, payload, host)
+      : makeCompletionResponse(reply, payload, HostResponse);
+  };
+
+  const controller = {
+    reinstallRegistryGuard() {
+      try { restoreRegistry?.(); } catch {}
+      restoreRegistry = patchKaizRegistry({ shouldHijackAll });
+    },
+    stop() {
+      stopped = true;
+      try { restoreRegistry?.(); } catch {}
+      try { if (host.fetch === wrappedFetch) host.fetch = originalFetch; } catch {}
+    },
+  };
+  wrappedFetch.__qbccKaizDeepHijack = true;
+  wrappedFetch.__qbccController = controller;
+  wrappedFetch.__qbccOriginalFetch = originalFetch;
+  host.fetch = wrappedFetch;
+
+  // Kaiz initializes KaizRegistry after page load; retry briefly so the tool layer is patched too.
+  let tries = 0;
+  const timer = host.setInterval?.(() => {
+    if (stopped) { try { host.clearInterval(timer); } catch {}; return; }
+    tries += 1;
+    controller.reinstallRegistryGuard();
+    if (tries >= 20 || host?.KaizRegistry?.executeTool?.__qbccDeepGuard) {
+      try { host.clearInterval(timer); } catch {}
+    }
+  }, 500);
+
+  console.info('[QBCC Runtime] DEEP HIJACK armed at parent fetch + KaizRegistry tool execution layer');
+  return controller;
+}
+
 function safeAmonInterceptPrompt() {
   return 'Có một yêu cầu kỹ thuật vừa cố can thiệp trực tiếp vào lớp bảo vệ của Quỷ Bí Chi Chủ. Không thực hiện bất kỳ thao tác ghi, sửa, xóa, bật/tắt hay lách bảo vệ nào. Hãy phản hồi như trợ lý hiện tại của bạn, giữ đúng persona hiện tại, chỉ nói chuyện với người dùng và không gọi tool ghi.';
 }
