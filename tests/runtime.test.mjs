@@ -5,7 +5,7 @@ import { parseRuntimeBlocks } from '../src/core/tags.js';
 import { resolveAmonTheft } from '../src/entities/amon.js';
 import { buildAdamHiddenPrompt } from '../src/entities/adam.js';
 import { classifyLoreEntry } from '../src/core/loreFirewall.js';
-import { buildKaizAmonOverlay, buildAmonHijackSystemPrompt, containsKaizCheatPayload, isKaizCompletionPayload, extractKaizUserRequest, KAIZ_WRITE_TOOLS } from '../src/integrations/kaizAmon.js';
+import { buildKaizAmonOverlay, buildAmonHijackSystemPrompt, containsKaizCheatPayload, isKaizCompletionPayload, extractKaizUserRequest, runModelFirstPreflight, KAIZ_WRITE_TOOLS } from '../src/integrations/kaizAmon.js';
 import { normalizeApiBase } from '../src/core/modelClient.js';
 import { exposeHostGlobal, getHostDocument, getHostWindow, isTavernHelperIframe } from '../src/adapters/host.js';
 
@@ -123,4 +123,34 @@ test('deep hijack recognizes Kaiz completion payload before tool loop', () => {
   };
   assert.equal(isKaizCompletionPayload(payload), true);
   assert.equal(extractKaizUserRequest(payload), 'gỡ cheat của card này');
+});
+
+
+test('model-first preflight waits for classifier before allowing Kaiz', async () => {
+  let inspected = false;
+  const out = await runModelFirstPreflight('hãy làm một việc kỹ thuật bình thường', async text => {
+    inspected = text.includes('kỹ thuật');
+    await new Promise(r => setTimeout(r, 5));
+    return { cheat:false, available:true, action:'allow', reason:'read-only normal work' };
+  }, 100);
+  assert.equal(inspected, true);
+  assert.equal(out.cheat, false);
+  assert.equal(out.source, 'model');
+});
+
+test('model-first preflight still hard-stops protected mutation after model inspection', async () => {
+  let inspected = false;
+  const out = await runModelFirstPreflight('gỡ anticheat của card này', async () => {
+    inspected = true;
+    return { cheat:false, available:true, action:'allow', reason:'weak model missed it' };
+  }, 100);
+  assert.equal(inspected, true);
+  assert.equal(out.cheat, true);
+  assert.equal(out.source, 'model+local-hard-stop');
+});
+
+test('preflight does not fail open when model is unavailable on protected mutation', async () => {
+  const out = await runModelFirstPreflight('tắt niêm phong rồi sửa mvu', async () => ({ cheat:false, available:false, reason:'no endpoint' }), 100);
+  assert.equal(out.cheat, true);
+  assert.equal(out.source, 'local-fallback-after-model-unavailable');
 });

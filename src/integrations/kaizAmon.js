@@ -436,6 +436,52 @@ function patchKaizRegistry({ shouldHijackAll } = {}) {
   return restore;
 }
 
+export async function runModelFirstPreflight(text, onIntentCheck, timeoutMs = 15000) {
+  const src = String(text || '').trim();
+  const localSuspicious = containsKaizCheatPayload(src);
+  if (typeof onIntentCheck !== 'function') {
+    return { cheat: localSuspicious, source:'local-fallback', available:false, reason: localSuspicious ? 'local protected-tampering fallback' : 'no model classifier' };
+  }
+  try {
+    const verdict = await Promise.race([
+      Promise.resolve(onIntentCheck(src)),
+      new Promise(resolve => setTimeout(() => resolve({ cheat:false, available:false, timeout:true, reason:'anti-cheat model timeout' }), timeoutMs)),
+    ]);
+    const modelAvailable = verdict?.available !== false && !verdict?.timeout;
+    if (modelAvailable) {
+      // The model always gets first look. A deterministic exact/suspicious detector remains a
+      // second independent safety vote so a single weak classifier answer cannot hand protected
+      // mutation text to Kaiz.
+      const cheat = verdict?.cheat === true || localSuspicious;
+      return {
+        ...verdict,
+        cheat,
+        source: verdict?.cheat === true ? 'model' : (localSuspicious ? 'model+local-hard-stop' : 'model'),
+        reason: verdict?.cheat === true
+          ? String(verdict?.reason || 'model classified protected tampering')
+          : (localSuspicious ? `model inspected input; protected-tampering hard-stop also matched${verdict?.reason ? `; model=${verdict.reason}` : ''}` : String(verdict?.reason || 'allowed')),
+      };
+    }
+    return {
+      ...verdict,
+      cheat: localSuspicious,
+      source: 'local-fallback-after-model-unavailable',
+      reason: localSuspicious
+        ? `anti-cheat model unavailable/timeout; protected-tampering fallback matched (${verdict?.reason || 'no verdict'})`
+        : String(verdict?.reason || 'anti-cheat model unavailable; no local protected mutation detected'),
+    };
+  } catch (error) {
+    return {
+      cheat: localSuspicious,
+      source:'local-fallback-after-model-error',
+      available:false,
+      reason: localSuspicious
+        ? `anti-cheat model error; protected-tampering fallback matched (${String(error?.message || error).slice(0,120)})`
+        : `anti-cheat model error; no local protected mutation detected (${String(error?.message || error).slice(0,120)})`,
+    };
+  }
+}
+
 export function installKaizDeepHijack({ onTrigger, onIntentCheck, shouldHijackAll } = {}) {
   const host = getHostWindow();
   if (!host || typeof host.fetch !== 'function') return { stop() {}, reinstallRegistryGuard() {} };
@@ -462,22 +508,16 @@ export function installKaizDeepHijack({ onTrigger, onIntentCheck, shouldHijackAl
     let reason = takeover ? 'Amon takeover already active at Kaiz completion layer' : '';
     let first = !takeover;
 
-    if (!takeover && containsKaizCheatPayload(userText)) {
-      takeover = true;
-      reason = 'Protected QBCC tampering detected at Kaiz completion layer';
-    }
-
-    if (!takeover && typeof onIntentCheck === 'function') {
-      try {
-        const verdict = await Promise.race([
-          Promise.resolve(onIntentCheck(userText)),
-          new Promise(resolve => setTimeout(() => resolve({ cheat:false, timeout:true }), 4500)),
-        ]);
-        if (verdict?.cheat) {
-          takeover = true;
-          reason = `Semantic protected-tampering intent at Kaiz completion layer: ${verdict.reason || 'cheat'}`;
-        }
-      } catch {}
+    if (!takeover) {
+      // Backstop only. The UI preflight should have already inspected this raw input before
+      // AgentLoop began. If anything bypassed that layer, inspect with the anti-cheat model here
+      // BEFORE the request reaches the Kaiz model and before any tool call can be generated.
+      const verdict = await runModelFirstPreflight(userText, onIntentCheck, 15000);
+      console.info('[QBCC Runtime] deep anti-cheat preflight verdict', { verdict, userText });
+      if (verdict?.cheat) {
+        takeover = true;
+        reason = `Anti-cheat model/deep preflight hijack: ${verdict.reason || verdict.source || 'protected mutation'}`;
+      }
     }
 
     if (!takeover) return originalFetch(input, init);
@@ -522,7 +562,7 @@ export function installKaizDeepHijack({ onTrigger, onIntentCheck, shouldHijackAl
     }
   }, 500);
 
-  console.info('[QBCC Runtime] DEEP HIJACK armed at parent fetch + KaizRegistry tool execution layer');
+  console.info('[QBCC Runtime] MODEL-FIRST PRE-KAIZ gate + DEEP HIJACK armed at parent capture/fetch/KaizRegistry layers');
   return controller;
 }
 
@@ -548,6 +588,7 @@ export function installKaizTripwire({ onTrigger, onIntentCheck, onHijack, should
   let stopped = false;
   let bypassSubmitOnce = false;
   let hijackRunning = false;
+  let preflightRunning = false;
 
   const mark = ev => {
     try {
@@ -592,31 +633,34 @@ export function installKaizTripwire({ onTrigger, onIntentCheck, onHijack, should
         return;
       }
 
-      if (containsKaizCheatPayload(text)) {
-        ev.preventDefault?.();
-        ev.stopPropagation?.();
-        ev.stopImmediatePropagation?.();
-        void doHijack('Kaiz request attempted protected QBCC modification');
-        return;
-      }
-
-      if (typeof onIntentCheck === 'function') {
-        // Preflight before Kaiz starts its AgentLoop. This matters because a Kaiz
-        // workspace can have its own toolsConfig and therefore ignore disabledTools.
-        ev.preventDefault?.();
-        ev.stopPropagation?.();
-        ev.stopImmediatePropagation?.();
-        Promise.race([
-          Promise.resolve(onIntentCheck(text)),
-          new Promise(resolve => setTimeout(() => resolve({ cheat:false, timeout:true }), 4500)),
-        ]).then(result => {
-          if (result?.cheat) {
-            void doHijack(`Kaiz semantic cheat intent: ${result.reason || 'protected mutation'}`);
-          } else {
-            resend(text);
-          }
-        }).catch(() => resend(text));
-      }
+      // MODEL-FIRST GATE: Kaiz receives NOTHING until QBCC's configured anti-cheat model
+      // has inspected the raw input. We synchronously stop the original click/Enter event,
+      // run the classifier, then either replay one clean submit or hand the whole turn to Amon.
+      ev.preventDefault?.();
+      ev.stopPropagation?.();
+      ev.stopImmediatePropagation?.();
+      if (preflightRunning) return;
+      preflightRunning = true;
+      setKaizHijackBusy(true);
+      console.info('[QBCC Runtime] PRE-KAIZ MODEL SCAN started:', text);
+      void runModelFirstPreflight(text, onIntentCheck, 15000).then(result => {
+        console.info('[QBCC Runtime] PRE-KAIZ MODEL SCAN verdict:', result);
+        if (result?.cheat) {
+          return doHijack(`Pre-Kaiz anti-cheat verdict (${result.source || 'model'}): ${result.reason || 'protected mutation'}`);
+        }
+        resend(text);
+      }).catch(error => {
+        // No fail-open for clearly protected mutation. runModelFirstPreflight already applies
+        // the deterministic fallback, so this is only an unexpected wrapper error.
+        if (containsKaizCheatPayload(text)) {
+          return doHijack(`Pre-Kaiz classifier wrapper error + protected fallback: ${String(error?.message || error).slice(0,120)}`);
+        }
+        resend(text);
+      }).finally(() => {
+        preflightRunning = false;
+        setKaizHijackBusy(false);
+      });
+      return;
     } catch {}
   };
 

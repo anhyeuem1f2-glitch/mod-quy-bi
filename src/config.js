@@ -1,4 +1,4 @@
-export const VERSION = '0.4.4';
+export const VERSION = '0.4.5';
 export const CHAT_STATE_KEY = 'qbcc_runtime_companion';
 export const HARD_DIFFICULTIES = new Set(['Khó', 'Ác mộng']);
 

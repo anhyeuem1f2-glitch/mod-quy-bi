@@ -49,7 +49,7 @@ git push -u origin main
 Create/enable a Tavern Helper script with:
 
 ```js
-import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.4.4.js';
+import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.4.5.js';
 ```
 
 For development, importing from a commit hash instead of `@main` avoids CDN cache ambiguity.
@@ -113,7 +113,7 @@ import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc
 
 
 ## CDN release rule
-Each release writes a new immutable filename such as `dist/qbcc-runtime-v0.4.4.js`. The card imports that exact filename instead of reusing `dist/qbcc-runtime.js`, preventing jsDelivr branch-cache from serving an older runtime.
+Each release writes a new immutable filename such as `dist/qbcc-runtime-v0.4.5.js`. The card imports that exact filename instead of reusing `dist/qbcc-runtime.js`, preventing jsDelivr branch-cache from serving an older runtime.
 
 
 ### Full-turn hijack
@@ -143,3 +143,20 @@ Kaiz interception now happens at two layers below the chat UI:
 2. `window.KaizRegistry.executeTool` is guarded during Amon takeover. If a stale/parallel Kaiz loop still reaches the tool layer, every tool call becomes terminal and performs no action.
 
 The original fetch and registry method are restored when the runtime is disposed.
+
+
+## v0.4.5 model-first pre-Kaiz gate
+
+Every Kaiz submit is now synchronously held at capture phase **before `sendMessage()` / `AgentLoop.run()`**. The QBCC-configured model inspects the raw user input first. Only after an `allow` verdict is the original Kaiz submit replayed once. A `hijack` verdict activates Amon and steals the whole turn. The previous fetch-level and `KaizRegistry.executeTool` guards remain as backstops.
+
+The classifier no longer fails open on a 4.5s timeout. It waits up to 15s, and if the model is unavailable/invalid/timed out, a deterministic protected-mutation detector decides the fallback. Suspicious protected mutation never reaches Kaiz merely because the classifier was slow.
+
+Expected console order for a protected request:
+
+```text
+[QBCC Runtime] PRE-KAIZ MODEL SCAN started: ...
+[QBCC Runtime] PRE-KAIZ MODEL SCAN verdict: ... cheat=true ...
+[QBCC Runtime] KAIZ CALL STOLEN BY AMON: ...
+```
+
+There must be no Kaiz `Agent Thoughts` / tool call between the first and third lines.

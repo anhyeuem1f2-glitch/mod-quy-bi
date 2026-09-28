@@ -18,13 +18,14 @@ import { installSettingsPanel, focusSettingsPanel } from './ui/settingsPanel.js'
 import { installInputAuthorityGate } from './core/inputAuthority.js';
 import { exposeHostGlobal, getHostWindow, isTavernHelperIframe } from './adapters/host.js';
 
-const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V044__';
+const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V045__';
 const LEGACY_INSTANCE_KEYS = [
   '__QBCC_RUNTIME_COMPANION__',
   '__QBCC_RUNTIME_COMPANION_V040__',
   '__QBCC_RUNTIME_COMPANION_V041__',
   '__QBCC_RUNTIME_COMPANION_V042__',
   '__QBCC_RUNTIME_COMPANION_V043__',
+  '__QBCC_RUNTIME_COMPANION_V044__',
 ];
 
 function disposeLegacyRuntime(instance, key = 'legacy') {
@@ -261,23 +262,26 @@ class QbccRuntimeCompanion {
     // Settings + deep Kaiz interception must exist immediately, before MVU boot finishes.
     this.stopSettingsPanel = installSettingsPanel({ toast: (kind, msg) => this.api.toast(kind, msg), version: VERSION });
     this.stopInputAuthority = installInputAuthorityGate({ onSanitized: () => this.api.toast('warning', 'Đã lọc lệnh can thiệp trực tiếp khỏi input.') });
-    this.kaizDeepHijack = installKaizDeepHijack({
-      onTrigger: reason => this.triggerKaizAmon(reason),
-      onIntentCheck: text => classifyKaizCheatIntent(text),
-      shouldHijackAll: () => this.state?.kaizAmon?.takeover === true,
-    });
-    console.info(`[QBCC Runtime] settings UI + deep Kaiz hooks installed; waiting for MVU...`);
-    await this.api.waitForMvu();
-    this.refreshContext();
-    this.state = readStoredState(this.api);
-    this.stopRedactor = installDomRedactor();
-    this.lastSealIntervention = Number(this.statData?._Niêm_phong?.Can_thiệp || 0);
+    // Install the model-first Kaiz input gate BEFORE waiting for MVU. The user's raw
+    // Kaiz input is held here until the QBCC model returns allow/hijack; AgentLoop never
+    // gets a chance to think or call tools before this verdict.
     this.kaizTripwire = installKaizTripwire({
       onTrigger: reason => void this.triggerKaizAmon(reason),
       onIntentCheck: text => classifyKaizCheatIntent(text),
       onHijack: (text, reason, first) => this.hijackKaizTurn(text, reason, first),
       shouldHijackAll: () => this.state?.kaizAmon?.takeover === true,
     });
+    this.kaizDeepHijack = installKaizDeepHijack({
+      onTrigger: reason => this.triggerKaizAmon(reason),
+      onIntentCheck: text => classifyKaizCheatIntent(text),
+      shouldHijackAll: () => this.state?.kaizAmon?.takeover === true,
+    });
+    console.info(`[QBCC Runtime] settings UI + MODEL-FIRST pre-Kaiz gate + deep hooks installed; waiting for MVU...`);
+    await this.api.waitForMvu();
+    this.refreshContext();
+    this.state = readStoredState(this.api);
+    this.stopRedactor = installDomRedactor();
+    this.lastSealIntervention = Number(this.statData?._Niêm_phong?.Can_thiệp || 0);
     ensureKaizAmonApplied(this.state);
 
     this.api.onEvent('WORLDINFO_ENTRIES_LOADED', this.onWorldInfoLoaded, 'first');
@@ -300,6 +304,7 @@ class QbccRuntimeCompanion {
       difficulty: this.difficulty,
       statLoaded: !!Object.keys(this.statData || {}).length,
       kaizInstalled: isKaizInstalled(),
+      kaizPreflightModelFirst: !!this.kaizTripwire,
       deepKaizHijackArmed: !!getHostWindow()?.fetch?.__qbccKaizDeepHijack,
       kaizRegistryGuardArmed: !!getHostWindow()?.KaizRegistry?.executeTool?.__qbccDeepGuard,
       model: (() => { const m = readModelSettings(); return { url: m.url, model: m.model, configured: !!(m.url && m.model) }; })(),
@@ -325,7 +330,7 @@ try {
 
 const hostWindow = getHostWindow();
 purgeLegacyRuntimes(hostWindow);
-console.info(`[QBCC Runtime] BOOT v${VERSION}; legacy runtimes purged; deep Kaiz fetch/tool hooks armed`);
+console.info(`[QBCC Runtime] BOOT v${VERSION}; legacy runtimes purged; MODEL-FIRST Kaiz input gate + deep fetch/tool backstops armed`);
 const existingInstance = (() => {
   try { return hostWindow?.[INSTANCE_KEY] || globalThis[INSTANCE_KEY] || null; } catch { return globalThis[INSTANCE_KEY] || null; }
 })();
