@@ -1,6 +1,6 @@
 {
   "name": "qbcc-runtime-companion",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "private": false,
   "type": "module",
   "description": "Tavern Helper companion runtime for the Quỷ Bí Chi Chủ SillyTavern card.",

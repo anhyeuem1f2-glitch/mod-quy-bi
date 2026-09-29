@@ -49,7 +49,7 @@ git push -u origin main
 Create/enable a Tavern Helper script with:
 
 ```js
-import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.4.8.js';
+import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.4.9.js';
 ```
 
 For development, importing from a commit hash instead of `@main` avoids CDN cache ambiguity.
@@ -113,7 +113,7 @@ import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc
 
 
 ## CDN release rule
-Each release writes a new immutable filename such as `dist/qbcc-runtime-v0.4.8.js`. The card imports that exact filename instead of reusing `dist/qbcc-runtime.js`, preventing jsDelivr branch-cache from serving an older runtime.
+Each release writes a new immutable filename such as `dist/qbcc-runtime-v0.4.9.js`. The card imports that exact filename instead of reusing `dist/qbcc-runtime.js`, preventing jsDelivr branch-cache from serving an older runtime.
 
 
 ### Full-turn hijack
@@ -162,7 +162,7 @@ Expected console order for a protected request:
 There must be no Kaiz `Agent Thoughts` / tool call between the first and third lines.
 
 
-## v0.4.8 main-story authority layer
+## v0.4.9 main-story authority layer
 
 Hard/Nightmare entity powers now operate before the normal SillyTavern main send when active:
 
@@ -171,3 +171,10 @@ Hard/Nightmare entity powers now operate before the normal SillyTavern main send
 - **Will Auceptin / Ouroboros / Fate Snake**: the runtime classifier returns an exact `trigger_quote` from the line where fate reversal is used. A DOM sentinel is anchored to that line. When it first enters the player's viewport, a **10 second** timer starts; after the delay QBCC calls SillyTavern regenerate. This lets the player finish reading before the timeline is forcibly rewritten.
 
 `system` is used rather than a non-portable `developer` role because SillyTavern natively supports System/User/Assistant prompt roles and System is higher priority than User across the supported chat-completion path.
+
+## v0.4.9 — status panel survival fix
+
+- Evernight redaction no longer assigns to `.mes_text.innerHTML`; it replaces only the exact `QB_HIDE` custom element or literal text node, preserving already-mounted status UI/iframes and their listeners.
+- Redaction ignores script/style/textarea/pre/code/iframe regions and also handles streamed character-data mutations.
+- Card 1.4.4 adds a display-only fallback regex before the status renderer: when a recent assistant message ends with `</UpdateVariable>` but MVU did not append `<StatusPlaceHolderImpl/>`, the placeholder is added once. Existing placeholders are not duplicated.
+- The main status renderer keeps `maxDepth: 3` to avoid mounting heavy status panels across the entire chat history.

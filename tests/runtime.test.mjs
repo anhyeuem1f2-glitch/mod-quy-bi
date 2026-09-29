@@ -199,3 +199,14 @@ test('v0.4.8 Amon monocle visual never overrides Kaiz launcher layout', () => {
   assert.ok(!/#kaiz-floating-btn\.qbcc-amonized\s*\{[^}]*display\s*:/i.test(KAIZ_AMON_VISUAL_CSS));
   assert.ok(!/#kaiz-floating-btn\.qbcc-amonized\s*\{[^}]*visibility\s*:/i.test(KAIZ_AMON_VISUAL_CSS));
 });
+
+
+test('v0.4.9 Evernight redactor never rewrites mes_text innerHTML', async () => {
+  const fs = await import('node:fs/promises');
+  const src = await fs.readFile(new URL('../src/adapters/domRedactor.js', import.meta.url), 'utf8');
+  assert.ok(src.includes('createTreeWalker'));
+  assert.ok(src.includes('createDocumentFragment'));
+  assert.ok(!/\.innerHTML\s*=/.test(src));
+  assert.ok(!/innerHTML\.replace/.test(src));
+  assert.ok(src.includes('iframe'));
+});
