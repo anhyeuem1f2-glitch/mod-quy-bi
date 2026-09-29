@@ -17,7 +17,28 @@ export function updateAmonState(current, block) {
   next.active = block.active === true;
   next.directive = String(block.directive || next.directive || '').slice(0, LIMITS.hiddenDirectiveChars);
   next.needsClassification = next.presence === 'on_scene' && next.form === 'unknown';
+  const parasitism = { active:false, target:'unknown', startedAt:0, endedAt:0, discovered:true, ...(current?.parasitism || {}) };
+  const p = String(block.parasitism || 'none').toLowerCase();
+  const target = String(block.parasitism_target || parasitism.target || 'unknown').toLowerCase();
+  if (p === 'start' && target === 'mc') {
+    parasitism.active = true;
+    parasitism.target = 'mc';
+    parasitism.startedAt = Date.now();
+    parasitism.endedAt = 0;
+  } else if (p === 'active' && target === 'mc') {
+    parasitism.active = true;
+    parasitism.target = 'mc';
+    if (!parasitism.startedAt) parasitism.startedAt = Date.now();
+  } else if (p === 'end' && (target === 'mc' || parasitism.target === 'mc')) {
+    parasitism.active = false;
+    parasitism.endedAt = Date.now();
+  }
+  next.parasitism = parasitism;
   return next;
+}
+
+export function isAmonParasitizingMc(amonState) {
+  return !!(amonState?.parasitism?.active && String(amonState?.parasitism?.target || '').toLowerCase() === 'mc');
 }
 
 export function resolveAmonTheft(amonState, statData) {

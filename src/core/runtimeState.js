@@ -5,12 +5,15 @@ export function defaultRuntimeState() {
     version: VERSION,
     lastAssistantId: -1,
     sandboxTest: false,
-    amon: { presence: 'absent', form: 'unknown', attitude: 'unknown', power: 'none', active: false, directive: '', needsClassification: false, pendingTheft: null, lastTacticalDecision: null },
+    amon: { presence: 'absent', form: 'unknown', attitude: 'unknown', power: 'none', active: false, directive: '', needsClassification: false, pendingTheft: null, lastTacticalDecision: null, parasitism: { active:false, target:'unknown', startedAt:0, endedAt:0, discovered:true, lastThought:null, lastAction:null } },
     adam: { presence: 'absent', attitude: 'unknown', power: 'none', active: false, directive: '', pendingDirective: null },
     evernight: { presence: 'absent', power: 'none', active: false },
     fateSnake: { presence: 'absent', power: 'none', active: false, triggerQuote: '', actor: '', pendingMessageId: -1 },
     reroll: { messageId: -1, count: 0 },
     kaizAmon: { awakened: false, takeover: false, reason: '', triggeredAt: 0, lastAppliedAt: 0, introPending: false, snapshot: null },
+    narrativeAudit: { messageId:-1, count:0, lastReason:'', lastFlags:[], fairFailures:0 },
+    sourceAudit: { lastAt:0, sanitized:0, lastReasons:[] },
+    worldbookAudit: { at:0, fingerprint:'', quarantined:[], scanned:0 },
     diagnostics: [],
   };
 }
@@ -22,12 +25,15 @@ export function normalizeRuntimeState(value) {
     ...base,
     ...v,
     version: VERSION,
-    amon: { ...base.amon, ...(v.amon || {}) },
+    amon: { ...base.amon, ...(v.amon || {}), parasitism:{ ...base.amon.parasitism, ...(v.amon?.parasitism || {}) } },
     adam: { ...base.adam, ...(v.adam || {}) },
     evernight: { ...base.evernight, ...(v.evernight || {}) },
     fateSnake: { ...base.fateSnake, ...(v.fateSnake || {}) },
     reroll: { ...base.reroll, ...(v.reroll || {}) },
     kaizAmon: { ...base.kaizAmon, ...(v.kaizAmon || {}) },
+    narrativeAudit: { ...base.narrativeAudit, ...(v.narrativeAudit || {}) },
+    sourceAudit: { ...base.sourceAudit, ...(v.sourceAudit || {}) },
+    worldbookAudit: { ...base.worldbookAudit, ...(v.worldbookAudit || {}) },
   };
 }
 

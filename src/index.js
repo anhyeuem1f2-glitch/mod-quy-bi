@@ -7,20 +7,23 @@ import { filterLoreArrays } from './core/loreFirewall.js';
 import { scanEntityMentions } from './core/presence.js';
 import { parseRuntimeBlocks, stripRuntimeBlocks } from './core/tags.js';
 import { readStoredState, writeStoredState } from './core/runtimeState.js';
-import { updateAmonState, resolveAmonTheft } from './entities/amon.js';
+import { updateAmonState, resolveAmonTheft, isAmonParasitizingMc } from './entities/amon.js';
 import { updateAdamState, isAdamAuthoringActive } from './entities/adam.js';
 import { updateEvernightState } from './entities/evernight.js';
 import { updateFateSnakeState, shouldForceReroll } from './entities/fateSnake.js';
 import { applyHardModeToChat, applyHardModeToTextPrompt } from './hardmode/director.js';
-import { activateKaizAmon, ensureKaizAmonApplied, restoreKaizAmon, installKaizTripwire, installKaizDeepHijack, isKaizInstalled, hijackKaizTurnAsAmon } from './integrations/kaizAmon.js';
-import { analyzeNarrativeRuntime, classifyKaizCheatIntent, decideAmonTurnAuthority, planAmonTheft, planAdamInfluence, readModelSettings } from './core/modelClient.js';
+import { activateKaizAmon, ensureKaizAmonApplied, restoreKaizAmon, installKaizTripwire, installKaizDeepHijack, installKaizCardScopeGuard, isQbccCardActive, isKaizInstalled, hijackKaizTurnAsAmon } from './integrations/kaizAmon.js';
+import { analyzeNarrativeRuntime, auditNarrativeIntegrity, auditWorldbookEntries, classifyKaizCheatIntent, decideAmonTurnAuthority, planAmonTheft, planAmonParasitismTurn, planAdamInfluence, readModelSettings } from './core/modelClient.js';
 import { installSettingsPanel, focusSettingsPanel } from './ui/settingsPanel.js';
 import { installInputAuthorityGate } from './core/inputAuthority.js';
 import { installMainEntityAuthorityGate } from './integrations/entityAuthority.js';
 import { armFateViewportReroll } from './integrations/fateViewport.js';
+import { installFinalRequestGate, markMainRequest } from './integrations/finalRequestGate.js';
+import { installParasitismBadge } from './integrations/parasitismBadge.js';
+import { collectKnownLanguages } from './core/languageFirewall.js';
 import { exposeHostGlobal, getHostWindow, isTavernHelperIframe } from './adapters/host.js';
 
-const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V049__';
+const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V051__';
 const LEGACY_INSTANCE_KEYS = [
   '__QBCC_RUNTIME_COMPANION__',
   '__QBCC_RUNTIME_COMPANION_V040__',
@@ -32,6 +35,8 @@ const LEGACY_INSTANCE_KEYS = [
   '__QBCC_RUNTIME_COMPANION_V046__',
   '__QBCC_RUNTIME_COMPANION_V047__',
   '__QBCC_RUNTIME_COMPANION_V048__',
+  '__QBCC_RUNTIME_COMPANION_V049__',
+  '__QBCC_RUNTIME_COMPANION_V050__',
 ];
 
 function disposeLegacyRuntime(instance, key = 'legacy') {
@@ -42,7 +47,23 @@ function disposeLegacyRuntime(instance, key = 'legacy') {
   }
   try { instance.kaizTripwire?.stop?.(); } catch {}
   try { instance.kaizDeepHijack?.stop?.(); } catch {}
+  try { instance.kaizCardScopeGuard?.stop?.(); } catch {}
+  try { instance.finalRequestGate?.stop?.(); } catch {}
+  try { instance.parasitismBadge?.stop?.(); } catch {}
   try { console.info(`[QBCC Runtime] disposed stale runtime ${key}`); } catch {}
+}
+
+function worldbookFingerprint(lores) {
+  try {
+    let h = 2166136261 >>> 0;
+    const add = text => { for (const ch of String(text || '')) { h ^= ch.codePointAt(0) || 0; h = Math.imul(h, 16777619) >>> 0; } };
+    for (const scope of ['globalLore','characterLore','chatLore','personaLore']) {
+      const list = lores?.[scope]; if (!Array.isArray(list)) continue;
+      add(scope); add(list.length);
+      for (const e of list) { add(e?.uid); add(e?.comment || e?.name); add(e?.world); add(e?.content); }
+    }
+    return h.toString(16).padStart(8,'0');
+  } catch { return ''; }
 }
 
 function purgeLegacyRuntimes(hostWindow) {
@@ -76,11 +97,14 @@ class QbccRuntimeCompanion {
     this.stopRedactor = () => {};
     this.kaizTripwire = null;
     this.kaizDeepHijack = null;
+    this.kaizCardScopeGuard = null;
     this.lastSealIntervention = 0;
     this.stopSettingsPanel = () => {};
     this.stopInputAuthority = () => {};
     this.stopEntityAuthority = () => {};
     this.stopFateViewport = () => {};
+    this.finalRequestGate = null;
+    this.parasitismBadge = null;
   }
 
   detectSandboxTestMode() {
@@ -119,6 +143,7 @@ class QbccRuntimeCompanion {
       this.refreshContext();
       if (!this.entityAuthorityEnabled()) return false;
       const amon = this.state?.amon || {};
+      if (isAmonParasitizingMc(amon)) return true;
       const resolved = resolveAmonTheft(amon, this.statData);
       const activeTheft = ['steal_input','steal_narrative'].includes(resolved.mode);
       const amonCanDecideNow = amon.presence === 'on_scene' && amon.form !== 'unknown' && !/ally/i.test(String(amon.attitude || ''));
@@ -131,6 +156,32 @@ class QbccRuntimeCompanion {
     if (!this.entityAuthorityEnabled()) return { visibleInput: originalInput };
     const context = this.api.getRecentChatText?.(10) || '';
     let effectiveAmon = { ...(this.state?.amon || {}) };
+
+    // Persistent parasitism outranks normal player input authority. The user's
+    // typed text is treated as host thought; Amon authors the body's outward
+    // action/speech until a verified narrative transition ends parasitism.
+    if (isAmonParasitizingMc(effectiveAmon)) {
+      let plan = null;
+      try { plan = await planAmonParasitismTurn({ input:originalInput, context, amon:effectiveAmon, difficulty:this.difficulty }); }
+      catch (error) { console.warn('[QBCC Runtime] Amon parasitism planner failed', error); }
+      plan = plan || {
+        visible_input:'…', host_thought:originalInput, amon_action:'', steal_thought:true,
+        directive:'Amon keeps control of the host body; user input is thought only.', reason:'fallback parasitism controller',
+      };
+      const p = this.state.amon.parasitism || (this.state.amon.parasitism = {});
+      p.active = true; p.target = 'mc';
+      p.lastThought = String(plan.host_thought || originalInput).slice(0,5000);
+      p.lastAction = String(plan.amon_action || plan.visible_input || '').slice(0,5000);
+      p.pendingTurn = {
+        hostThought:p.lastThought, amonAction:p.lastAction, directive:String(plan.directive || '').slice(0,1800),
+        stealThought:plan.steal_thought !== false, reason:String(plan.reason || '').slice(0,300), createdAt:Date.now(),
+      };
+      await this.persist();
+      this.parasitismBadge?.refresh?.();
+      console.info('[QBCC Runtime] AMON PARASITISM controls this turn; USER input converted to thought', p.pendingTurn);
+      return { visibleInput:String(plan.visible_input || plan.amon_action || '…') || '…' };
+    }
+
     let amonEffect = resolveAmonTheft(effectiveAmon, this.statData);
 
     // Amon should not need the previous prose to spell out "he activates Theft" every
@@ -146,7 +197,6 @@ class QbccRuntimeCompanion {
           context,
           amon: effectiveAmon,
           difficulty: this.difficulty,
-      sandboxTest: this.sandboxTest,
           sandboxTest: this.sandboxTest,
         });
         if (decision) {
@@ -204,6 +254,7 @@ class QbccRuntimeCompanion {
   clearTurnAuthorityPayloads() {
     try { if (this.state?.amon) this.state.amon.pendingTheft = null; } catch {}
     try { if (this.state?.adam) this.state.adam.pendingDirective = null; } catch {}
+    try { if (this.state?.amon?.parasitism) this.state.amon.parasitism.pendingTurn = null; } catch {}
   }
 
   armFateViewport(messageId) {
@@ -253,6 +304,10 @@ class QbccRuntimeCompanion {
 
   async triggerKaizAmon(reason) {
     try {
+      if (!isQbccCardActive()) {
+        restoreKaizAmon(this.state, { preserveState: true, persistCleanup: true });
+        return false;
+      }
       if (this.state?.kaizAmon?.awakened) {
         ensureKaizAmonApplied(this.state);
         return false;
@@ -318,6 +373,9 @@ class QbccRuntimeCompanion {
         statData: this.statData,
         runtimeState: this.state,
       });
+      // Mark THIS assembled main-story request for the deepest fetch gate.
+      // Extension-side AI calls never receive this marker and are left untouched.
+      markMainRequest(ev.chat);
     } catch (error) { console.error('[QBCC Runtime] prompt hook', error); }
   };
 
@@ -337,12 +395,37 @@ class QbccRuntimeCompanion {
     } catch (error) { console.error('[QBCC Runtime] text prompt hook', error); }
   };
 
-  onWorldInfoLoaded = lores => {
+  onWorldInfoLoaded = async lores => {
     try {
       if (this.__qbccSuperseded) return;
       this.refreshContext();
       const result = filterLoreArrays(lores, this.difficulty);
-      if (result.removed.length) console.info('[QBCC Runtime] lore firewall removed:', result.removed);
+      if (result.foreign?.length) console.info('[QBCC Runtime] lore firewall flagged foreign-domain entries for final prompt review:', result.foreign);
+      if (result.suspicious?.length) console.info('[QBCC Runtime] lore firewall flagged authority-like worldbook entries for semantic review:', result.suspicious);
+
+      // The model audits worldbook CONTENT, not just names. Never splice shared
+      // lore arrays: World-Engine/memo-suite must still be able to read them.
+      try {
+        const fingerprint = worldbookFingerprint(lores);
+        if (fingerprint && this.state?.worldbookAudit?.fingerprint === fingerprint) return;
+        const audit = await auditWorldbookEntries(lores, { difficulty:this.difficulty });
+        if (audit?.available) {
+          const scopes = ['globalLore','characterLore','chatLore','personaLore'];
+          const quarantined = [];
+          for (const item of audit.items || []) {
+            if (item.verdict !== 'quarantine' || Number(item.confidence || 0) < 0.75) continue;
+            const e = scopes.includes(item.scope) ? lores?.[item.scope]?.[item.index] : null;
+            quarantined.push({
+              label:`${item.scope}:${e?.comment || e?.name || e?.uid || item.index}`,
+              reason:item.reason || '', confidence:item.confidence,
+            });
+          }
+          this.state.worldbookAudit = { at:Date.now(), fingerprint, quarantined, scanned:Number(audit.scanned || 0) };
+          if (quarantined.length) console.warn('[QBCC Runtime] semantic worldbook quarantine:', quarantined);
+          else console.info('[QBCC Runtime] semantic worldbook audit clean', { scanned:audit.scanned || 0 });
+          await this.persist();
+        }
+      } catch (error) { console.warn('[QBCC Runtime] semantic worldbook audit skipped', error); }
     } catch (error) { console.error('[QBCC Runtime] lore firewall', error); }
   };
 
@@ -351,6 +434,34 @@ class QbccRuntimeCompanion {
     if (!text || message?.role === 'user') return;
     let blocks = parseRuntimeBlocks(text);
     const mentions = scanEntityMentions(text);
+
+    // HARD/NIGHTMARE output firewall: the configured QBCC model audits the
+    // finished narrative itself. A severe integrity failure is rerolled once
+    // instead of being accepted merely because it came from the main model.
+    if (isHardMode(this.difficulty) && !this.sandboxTest) {
+      try {
+        const langs = collectKnownLanguages(this.statData).map(x => `${x.name}:${x.level}`).join(', ');
+        const audit = await auditNarrativeIntegrity({
+          text, difficulty:this.difficulty, context:this.api.getRecentChatText?.(8) || '',
+          stateSummary:JSON.stringify({ mc:this.statData?.Nhân_vật_chính, settings:this.statData?._Cài_đặt, amon:this.state?.amon }).slice(0,12000),
+          knownLanguages:langs,
+        });
+        if (audit?.available) {
+          const na = this.state.narrativeAudit || (this.state.narrativeAudit = { messageId:-1, count:0, lastReason:'', lastFlags:[], fairFailures:0 });
+          if (audit.fair_failure) { na.fairFailures = Number(na.fairFailures || 0) + 1; console.info('[QBCC Runtime] FAIRNESS AUDIT: correctly avoided miraculous user rescue/privilege', audit); }
+          na.lastReason = audit.reason || ''; na.lastFlags = audit.flags || [];
+          if (audit.reroll && (na.messageId !== id || Number(na.count || 0) < 1)) {
+            if (na.messageId !== id) { na.messageId = id; na.count = 0; }
+            na.count += 1;
+            await this.persist();
+            console.warn('[QBCC Runtime] NARRATIVE INTEGRITY violation -> reroll once', audit);
+            this.api.toast('warning', `Chính văn vi phạm mô phỏng (${audit.reason || (audit.flags || []).join(', ')}); đang tạo lại.`);
+            await this.api.reroll();
+            return;
+          }
+        }
+      } catch (error) { console.warn('[QBCC Runtime] narrative output audit skipped', error); }
+    }
 
     // Hard/Nightmare always asks the configured QBCC model to audit the final
     // narrative. This is intentionally independent from optional QB_RUNTIME
@@ -376,6 +487,8 @@ class QbccRuntimeCompanion {
               attitude: (!prev.attitude || prev.attitude === 'unknown') ? (inf.attitude || prev.attitude) : prev.attitude,
               trigger_quote: inf.trigger_quote || prev.trigger_quote || '',
               actor: inf.actor || prev.actor || inf.entity || prev.entity,
+              parasitism: (!prev.parasitism || prev.parasitism === 'none') ? (inf.parasitism || prev.parasitism || 'none') : prev.parasitism,
+              parasitism_target: (!prev.parasitism_target || prev.parasitism_target === 'unknown') ? (inf.parasitism_target || prev.parasitism_target || 'unknown') : prev.parasitism_target,
             });
           }
           blocks = [...keyed.values()];
@@ -394,6 +507,7 @@ class QbccRuntimeCompanion {
     if (mentions.amon.likelyOnScene && !blocks.some(b => /amon|阿蒙/i.test(String(b.entity || '')))) {
       this.state.amon = { ...this.state.amon, presence: 'on_scene', form: 'unknown', needsClassification: true };
     }
+    this.parasitismBadge?.refresh?.();
 
     this.state.lastAssistantId = id;
     this.refreshContext();
@@ -408,7 +522,7 @@ class QbccRuntimeCompanion {
 
     // Amon/Adam turn payloads are one-turn authorities. Once the response that
     // consumed them exists, remove the private original/directive from runtime state.
-    if (this.state?.amon?.pendingTheft || this.state?.adam?.pendingDirective) {
+    if (this.state?.amon?.pendingTheft || this.state?.adam?.pendingDirective || this.state?.amon?.parasitism?.pendingTurn) {
       this.clearTurnAuthorityPayloads();
       await this.persist();
     }
@@ -436,11 +550,18 @@ class QbccRuntimeCompanion {
   onChatChanged = async () => {
     try { this.stopFateViewport?.(); this.stopFateViewport = () => {}; } catch {}
     try {
-      if (this.__qbccSuperseded) return; restoreKaizAmon(this.state); } catch {}
+      if (this.__qbccSuperseded) return;
+      // Kaiz settings are global across cards. Always remove any temporary
+      // masquerade/tool locks from the previous chat before reading the next one.
+      restoreKaizAmon(this.state, { preserveState: true, persistCleanup: true });
+    } catch {}
     this.state = readStoredState(this.api);
     this.refreshContext();
     this.lastSealIntervention = Number(this.statData?._Niêm_phong?.Can_thiệp || 0);
-    ensureKaizAmonApplied(this.state);
+    if (isQbccCardActive()) ensureKaizAmonApplied(this.state);
+    else restoreKaizAmon(this.state, { preserveState: true, persistCleanup: true });
+    this.kaizCardScopeGuard?.check?.();
+    this.parasitismBadge?.refresh?.();
   };
 
   async start() {
@@ -461,22 +582,44 @@ class QbccRuntimeCompanion {
     this.kaizTripwire = installKaizTripwire({
       onTrigger: reason => this.triggerKaizAmon(reason),
       onIntentCheck: text => classifyKaizCheatIntent(text),
-      shouldHijackAll: () => this.state?.kaizAmon?.takeover === true,
+      shouldHijackAll: () => isQbccCardActive() && this.state?.kaizAmon?.takeover === true,
     });
     this.kaizDeepHijack = installKaizDeepHijack({
       onTrigger: reason => this.triggerKaizAmon(reason),
       onIntentCheck: text => classifyKaizCheatIntent(text),
-      shouldHijackAll: () => this.state?.kaizAmon?.takeover === true,
+      shouldHijackAll: () => isQbccCardActive() && this.state?.kaizAmon?.takeover === true,
     });
-    console.info(`[QBCC Runtime] settings UI + MAIN ENTITY AUTHORITY + MODEL-FIRST pre-Kaiz gate + deep hooks installed; waiting for MVU...`);
+    // Kaiz extension settings are global, while Amon masquerade belongs only to
+    // this QBCC card. Poll active character scope and clean any temporary Kaiz
+    // mutation immediately when the user leaves the card (also on pagehide).
+    this.kaizCardScopeGuard = installKaizCardScopeGuard({ getRuntimeState: () => this.state });
+    this.finalRequestGate = installFinalRequestGate({
+      getDifficulty: () => this.difficulty,
+      getStatData: () => this.statData,
+      getRuntimeState: () => this.state,
+      sandboxTest: () => this.sandboxTest,
+      onAudit: info => {
+        try {
+          const s = this.state.sourceAudit || (this.state.sourceAudit = {});
+          s.lastAt = Date.now();
+          s.sanitized = Number(s.sanitized || 0) + Number(info?.changed || 0);
+          s.lastReasons = (info?.report?.items || []).filter(x => x.verdict === 'sanitize').map(x => x.reason).slice(0,8);
+        } catch {}
+      },
+    });
+    console.info(`[QBCC Runtime] settings UI + MAIN ENTITY AUTHORITY + MODEL-FIRST intent gate + FINAL REQUEST semantic firewall installed; waiting for MVU...`);
     await this.api.waitForMvu();
     this.refreshContext();
     this.state = readStoredState(this.api);
     this.stopRedactor = installDomRedactor();
+    this.parasitismBadge = installParasitismBadge({ isActive: () => isAmonParasitizingMc(this.state?.amon) });
     this.lastSealIntervention = Number(this.statData?._Niêm_phong?.Can_thiệp || 0);
     ensureKaizAmonApplied(this.state);
+    this.parasitismBadge?.refresh?.();
 
-    this.api.onEvent('WORLDINFO_ENTRIES_LOADED', this.onWorldInfoLoaded, 'first');
+    // Run lore reporting LAST so trusted infrastructure can read the original
+    // full worldbook first. v0.5.0 no longer destructively splices shared arrays.
+    this.api.onEvent('WORLDINFO_ENTRIES_LOADED', this.onWorldInfoLoaded, 'last');
     this.api.onEvent('CHAT_COMPLETION_PROMPT_READY', this.onPromptReady, 'last');
     this.api.onEvent('GENERATE_AFTER_COMBINE_PROMPTS', this.onTextPromptReady, 'last');
     this.api.onEvent('CHAT_CHANGED', this.onChatChanged, 'on');
@@ -497,10 +640,14 @@ class QbccRuntimeCompanion {
       sandboxTest: this.sandboxTest,
       statLoaded: !!Object.keys(this.statData || {}).length,
       kaizInstalled: isKaizInstalled(),
+      qbccCardActive: isQbccCardActive(),
+      kaizCardScopeGuardArmed: !!this.kaizCardScopeGuard,
       mainEntityAuthorityArmed: !!this.stopEntityAuthority,
       fateViewportControllerArmed: typeof this.stopFateViewport === 'function',
       kaizPreflightModelFirst: !!this.kaizTripwire,
-      deepKaizHijackArmed: !!getHostWindow()?.fetch?.__qbccKaizDeepHijack,
+      deepKaizHijackArmed: !!getHostWindow()?.fetch?.__qbccKaizDeepHijack || !!getHostWindow()?.fetch?.__qbccFinalRequestGate,
+      finalRequestGate: this.finalRequestGate?.diagnostics?.() || { armed:false },
+      amonParasitismActive: isAmonParasitizingMc(this.state?.amon),
       kaizRegistryGuardArmed: !!getHostWindow()?.KaizRegistry?.executeTool?.__qbccDeepGuard,
       model: (() => { const m = readModelSettings(); return { url: m.url, model: m.model, configured: !!(m.url && m.model) }; })(),
       tavernHelperIframe: isTavernHelperIframe(),
@@ -525,7 +672,7 @@ try {
 
 const hostWindow = getHostWindow();
 purgeLegacyRuntimes(hostWindow);
-console.info(`[QBCC Runtime] BOOT v${VERSION}; legacy runtimes purged; Amon tactical persona + native Kaiz masquerade + sandbox entity test + viewport Fate reroll armed`);
+console.info(`[QBCC Runtime] BOOT v${VERSION}; legacy runtimes purged; semantic source firewall + output auditor + Amon parasitism + language/acting authority + viewport Fate reroll armed`);
 const existingInstance = (() => {
   try { return hostWindow?.[INSTANCE_KEY] || globalThis[INSTANCE_KEY] || null; } catch { return globalThis[INSTANCE_KEY] || null; }
 })();

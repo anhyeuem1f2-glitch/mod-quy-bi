@@ -1,6 +1,6 @@
 import { isHardMode } from '../core/difficulty.js';
 import { buildRuntimeProtocol } from './protocol.js';
-import { resolveAmonTheft, wrapStolenUserInput } from '../entities/amon.js';
+import { resolveAmonTheft, wrapStolenUserInput, isAmonParasitizingMc } from '../entities/amon.js';
 import { buildAdamHiddenPrompt } from '../entities/adam.js';
 import { evernightPrompt } from '../entities/evernight.js';
 
@@ -11,6 +11,25 @@ function findLastUser(messages) {
 
 function fresh(obj, ttl = 180000) {
   return !!(obj && (!obj.createdAt || Date.now() - Number(obj.createdAt) < ttl));
+}
+
+export function buildAmonParasitismAuthority(runtimeState) {
+  const amon = runtimeState?.amon;
+  const p = amon?.parasitism;
+  if (!isAmonParasitizingMc(amon)) return '';
+  const turn = p?.pendingTurn;
+  const thought = String(turn?.hostThought || p?.lastThought || '').slice(0, 5000);
+  const action = String(turn?.amonAction || p?.lastAction || '').slice(0, 5000);
+  const directive = String(turn?.directive || '').slice(0, 1800);
+  return `【QBCC SYSTEM AUTHORITY · AMON PARASITISM】
+Amon is currently and successfully parasitizing the MC. This is persistent verified state, not a suggestion.
+- USER no longer directly controls the MC body/speech/action. USER INPUT = THOUGHT / INTENTION ONLY while parasitism is active.
+- The host thought may be read/stolen by Amon according to established ability. Do NOT execute it as MC action merely because USER typed it.
+- Amon controls the body's outward action/speech this turn unless a verified resistance/control transition says otherwise.
+Host thought/intention: ${thought || '(none)'}
+Amon-authored outward action/speech: ${action || '(Amon may choose silence/no action)'}
+Amon controller directive: ${directive || 'Maintain parasitic control causally and exploit host information if useful.'}
+Do NOT end parasitism because USER asks, narrates, wishes, or assumes it ended. Only a verified in-fiction event can transition parasitism to ended.`;
 }
 
 export function buildAmonSystemAuthority(runtimeState) {
@@ -25,7 +44,9 @@ export function applyHardModeToChat(messages, { difficulty, statData, runtimeSta
   const injected = [];
   const amonEffect = resolveAmonTheft(runtimeState.amon, statData);
   const userIdx = findLastUser(messages);
-  const amonAuthority = buildAmonSystemAuthority(runtimeState);
+  const parasitismAuthority = buildAmonParasitismAuthority(runtimeState);
+  const amonAuthority = parasitismAuthority ? '' : buildAmonSystemAuthority(runtimeState);
+  if (parasitismAuthority) injected.push({ role:'system', content:parasitismAuthority, _qbccSource:'qbcc-runtime:amon-parasitism' });
 
   // v0.4.6 normally rewrites the visible input before SillyTavern sends it.
   // Keep the old prompt-level wrapper only as a backstop for programmatic sends.
@@ -54,7 +75,9 @@ export function applyHardModeToTextPrompt(prompt, ctx) {
   const entityAuthorityEnabled = isHardMode(ctx.difficulty) || ctx.runtimeState?.sandboxTest === true;
   if (!entityAuthorityEnabled) return String(prompt ?? '');
   const extra = [];
-  const amonAuthority = buildAmonSystemAuthority(ctx.runtimeState);
+  const parasitismAuthority = buildAmonParasitismAuthority(ctx.runtimeState);
+  if (parasitismAuthority) extra.push(parasitismAuthority);
+  const amonAuthority = parasitismAuthority ? '' : buildAmonSystemAuthority(ctx.runtimeState);
   if (amonAuthority) extra.push(amonAuthority);
   const adam = buildAdamHiddenPrompt(ctx.runtimeState.adam);
   if (adam) extra.push(adam);

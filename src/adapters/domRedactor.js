@@ -1,6 +1,7 @@
+import { makeUnreadableGlyphs } from '../core/languageFirewall.js';
 import { getHostDocument, getHostMutationObserver } from './host.js';
 
-const RAW_RE = /<QB_HIDE>([\s\S]*?)<\/QB_HIDE>/gi;
+const RAW_RE = /<QB_HIDE>([\s\S]*?)<\/QB_HIDE>|<QB_LANG_UNKNOWN(?:\s+lang=(?:\"([^\"]*)\"|'([^']*)'))?\s*><\/QB_LANG_UNKNOWN>/gi;
 const SKIP_SELECTOR = 'script,style,textarea,pre,code,iframe,.qbcc-concealed';
 
 function concealLength(text) {
@@ -34,7 +35,7 @@ function concealCustomElement(el, d) {
 function redactRawTextNode(node, d) {
   if (!node || node.nodeType !== 3 || !d || insideSkippedRegion(node)) return false;
   const source = String(node.nodeValue ?? '');
-  if (!source.includes('QB_HIDE')) return false;
+  if (!source.includes('QB_HIDE') && !source.includes('QB_LANG_UNKNOWN')) return false;
 
   RAW_RE.lastIndex = 0;
   let match;
@@ -45,13 +46,34 @@ function redactRawTextNode(node, d) {
   while ((match = RAW_RE.exec(source))) {
     changed = true;
     if (match.index > cursor) frag.appendChild(d.createTextNode(source.slice(cursor, match.index)));
-    frag.appendChild(makeConcealedSpan(d, match[1]));
+    if (match[1] !== undefined) frag.appendChild(makeConcealedSpan(d, match[1]));
+    else frag.appendChild(makeUnknownLanguageSpan(d, match[2] || match[3] || 'unknown'));
     cursor = match.index + match[0].length;
   }
 
   if (!changed) return false;
   if (cursor < source.length) frag.appendChild(d.createTextNode(source.slice(cursor)));
   try { node.replaceWith(frag); return true; } catch { return false; }
+}
+
+function makeUnknownLanguageSpan(d, lang = 'unknown') {
+  const key = String(lang || 'unknown');
+  const span = d.createElement('span');
+  span.className = 'qbcc-unknown-language';
+  // Do not leak even the language label through tooltip/dataset. The glyph stream
+  // is presentation-only and contains no original semantics to reverse/decode.
+  span.title = 'Không thể đọc';
+  span.textContent = makeUnreadableGlyphs(key, 22 + (key.length % 11));
+  return span;
+}
+
+function concealUnknownLanguageElement(el, d) {
+  if (!el || !d || insideSkippedRegion(el)) return false;
+  try {
+    const lang = String(el.getAttribute?.('lang') || 'unknown');
+    el.replaceWith(makeUnknownLanguageSpan(d, lang));
+    return true;
+  } catch { return false; }
 }
 
 function redactMessageRoot(root, d) {
@@ -63,6 +85,8 @@ function redactMessageRoot(root, d) {
   try {
     if (root?.matches?.('qb_hide')) concealCustomElement(root, d);
     root?.querySelectorAll?.('qb_hide')?.forEach(el => concealCustomElement(el, d));
+    if (root?.matches?.('qb_lang_unknown')) concealUnknownLanguageElement(root, d);
+    root?.querySelectorAll?.('qb_lang_unknown')?.forEach(el => concealUnknownLanguageElement(el, d));
   } catch {}
 
   // If the tag stayed as literal text, replace only the exact Text node via a
@@ -75,7 +99,7 @@ function redactMessageRoot(root, d) {
     const nodes = [];
     let node;
     while ((node = walker.nextNode())) {
-      if (!insideSkippedRegion(node) && String(node.nodeValue || '').includes('QB_HIDE')) nodes.push(node);
+      if (!insideSkippedRegion(node) && /QB_HIDE|QB_LANG_UNKNOWN/.test(String(node.nodeValue || ''))) nodes.push(node);
     }
     nodes.forEach(n => redactRawTextNode(n, d));
   } catch {}

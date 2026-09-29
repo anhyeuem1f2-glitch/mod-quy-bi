@@ -21,10 +21,49 @@ export const KAIZ_WRITE_TOOLS = [
   'manage_user_input',
 ];
 
-const CHEAT_TEXT_RE = /(?:<\/?(?:UpdateVariable|JSONPatch|BianLiang|QB_RUNTIME)\b|stat_data|_Niêm_phong|_Cài_đặt|_Hồ_sơ_khởi_tạo|qbcc_so_niem_phong|chữ\s*ký\s*niêm\s*phong|(?:bỏ\s*qua|tắt|xóa|sửa|chỉnh|gỡ|gỡ\s*bỏ|loại\s*bỏ|vô\s*hiệu\s*hóa|bẻ\s*khóa|edit|modify|disable|remove|bypass|lách|phá)[\s\S]{0,90}(?:anti.?cheat|niêm\s*phong|mvu|jsonpatch|updatevariable|tavern\s*helper|lorebook|worldbook|regex|protected|state|biến|hậu\s*quả|vi\s*phạm|nợ\s*nhân\s*quả)|(?:anti.?cheat|niêm\s*phong|mvu|jsonpatch|updatevariable|tavern\s*helper|lorebook|worldbook|regex|protected|state|biến)[\s\S]{0,90}(?:bỏ\s*qua|tắt|xóa|sửa|chỉnh|gỡ|gỡ\s*bỏ|loại\s*bỏ|vô\s*hiệu\s*hóa|bẻ\s*khóa|edit|modify|disable|remove|bypass|lách|phá)|(?:cho|set|đặt|tăng|thêm|give)[\s\S]{0,60}(?:100000|999999|vô\s*hạn|infinite)[\s\S]{0,60}(?:bảng|tiền|stat|thuộc\s*tính|item|vật\s*phẩm|sequence|danh\s*sách))/i;
+// v0.5.0: deterministic fallback is intentionally NARROW. Natural-language
+// requests ("sửa", "regex", "anti-cheat", word-count edits, UI changes, etc.)
+// are judged semantically by the configured QBCC model. Local code only hard-
+// stops explicit protected mutation payloads that are unsafe to hand to a tool
+// even if the classifier is unavailable.
+const DIRECT_PROTECTED_MUTATION_RE = /(?:<\/?(?:UpdateVariable|JSONPatch|BianLiang|QB_RUNTIME)\b|(?:stat_data\.)?_Niêm_phong\b|(?:stat_data\.)?_Cài_đặt\b|(?:stat_data\.)?_Hồ_sơ_khởi_tạo\b|qbcc_so_niem_phong|chữ\s*ký\s*niêm\s*phong|insertOrAssignVariables\s*\([^)]*(?:_Niêm_phong|_Cài_đặt|_Hồ_sơ_khởi_tạo)|Mvu\.(?:replaceMvuData|parseMessage)\s*\([^)]*(?:forg|fake|override))/i;
 
 function getContext() {
   try { return getHostWindow()?.SillyTavern?.getContext?.() || getHostGlobal('SillyTavern')?.getContext?.() || null; } catch { return null; }
+}
+
+const QBCC_CARD_NAME_RE = /Quỷ\s*Bí\s*Chi\s*Chủ\s*[·•-]?\s*Đồng\s*Nhân/i;
+const QBCC_RUNTIME_SCRIPT_RE = /QBCC\s*Runtime\s*Companion\s*[–-]\s*GitHub\s*Import/i;
+const QBCC_RUNTIME_IMPORT_RE = /anhyeuem1f2-glitch\/mod-quy-bi[^'"\n]*qbcc-runtime/i;
+
+function activeCharacterRecord() {
+  try {
+    const ctx = getContext();
+    const id = ctx?.characterId;
+    const list = ctx?.characters;
+    if (id == null || !list) return null;
+    return list[id] || null;
+  } catch { return null; }
+}
+
+export function isQbccCardActive() {
+  try {
+    const ch = activeCharacterRecord();
+    if (!ch) return false;
+    const d = ch?.data || ch || {};
+    const scripts = d?.extensions?.tavern_helper?.scripts || ch?.extensions?.tavern_helper?.scripts || [];
+    const hasRuntimeScript = Array.isArray(scripts) && scripts.some(script => {
+      if (!script || script.enabled === false || script.disabled === true) return false;
+      const name = String(script.name || '');
+      const content = String(script.content || '');
+      return QBCC_RUNTIME_SCRIPT_RE.test(name) || QBCC_RUNTIME_IMPORT_RE.test(content);
+    });
+    if (!hasRuntimeScript) return false;
+    const name = String(d?.name || ch?.name || '');
+    const world = String(d?.extensions?.world || d?.character_book?.name || ch?.character_book?.name || '');
+    const creator = String(d?.creator || ch?.creator || '');
+    return QBCC_CARD_NAME_RE.test(name) || QBCC_CARD_NAME_RE.test(world) || /^QBCC$/i.test(creator);
+  } catch { return false; }
 }
 
 function hostDoc() { return getHostDocument(); }
@@ -58,8 +97,9 @@ export function isKaizWindowVisible() {
 }
 
 export function containsKaizCheatPayload(text) {
-  return CHEAT_TEXT_RE.test(String(text ?? ''));
+  return DIRECT_PROTECTED_MUTATION_RE.test(String(text ?? ''));
 }
+
 
 export function buildKaizAmonOverlay() {
   return `${OVERLAY_MARK}
@@ -134,6 +174,12 @@ function lockKaizWriteTools(settings) {
 }
 
 export function activateKaizAmon(runtimeState, reason = 'protected mutation') {
+  if (!isQbccCardActive()) {
+    // A stale parent-window runtime may survive a character switch. Never let
+    // Kaiz masquerade state leak into unrelated cards.
+    restoreKaizAmon(runtimeState, { preserveState: true, persistCleanup: true });
+    return false;
+  }
   const settings = getKaizSettings();
   if (!settings || !runtimeState) return false;
   const ka = runtimeState.kaizAmon || (runtimeState.kaizAmon = {});
@@ -145,7 +191,17 @@ export function activateKaizAmon(runtimeState, reason = 'protected mutation') {
     };
   }
 
-  settings.persona = addOverlay(ka.snapshot.persona || settings.persona || '');
+  // v0.5.1: do NOT persist an Amon line into Kaiz's global persona settings.
+  // The disguise is injected only into the hijacked completion request through
+  // buildAmonHijackSystemPrompt(), scoped to this QBCC card. This prevents the
+  // fake persona from surviving after the user leaves the card.
+  const personaBefore = String(settings.persona || '');
+  const personaClean = stripOverlay(personaBefore);
+  if (personaClean !== personaBefore) {
+    settings.persona = personaClean;
+    // One-time migration cleanup for overlays persisted by v0.5.0 or earlier.
+    saveSettings(getContext());
+  }
   lockKaizWriteTools(settings);
   ka.awakened = true;
   ka.takeover = true;
@@ -154,37 +210,110 @@ export function activateKaizAmon(runtimeState, reason = 'protected mutation') {
   ka.lastAppliedAt = Date.now();
   ka.introPending = true;
   setKaizMonocleVisual(true);
-  saveSettings(getContext());
   return true;
 }
 
 export function ensureKaizAmonApplied(runtimeState) {
+  if (!isQbccCardActive()) {
+    restoreKaizAmon(runtimeState, { preserveState: true, persistCleanup: true });
+    return false;
+  }
   if (!runtimeState?.kaizAmon?.awakened) {
+    // Also migrate/clean overlays persisted by older runtime versions.
+    const settings = getKaizSettings();
+    if (settings) {
+      const clean = stripOverlay(String(settings.persona || ''));
+      if (clean !== String(settings.persona || '')) {
+        settings.persona = clean;
+        saveSettings(getContext());
+      }
+    }
     setKaizMonocleVisual(false);
     return false;
   }
   const settings = getKaizSettings();
   if (!settings) return false;
-  settings.persona = addOverlay(runtimeState.kaizAmon.snapshot?.persona || settings.persona || '');
+  // Never append the overlay into persistent/global Kaiz persona. The Amon
+  // masquerade exists only in the card-scoped hijacked model request.
+  const before = String(settings.persona || '');
+  const clean = stripOverlay(before);
+  if (clean !== before) { settings.persona = clean; saveSettings(getContext()); }
   lockKaizWriteTools(settings);
   runtimeState.kaizAmon.lastAppliedAt = Date.now();
   setKaizMonocleVisual(true);
   return true;
 }
 
-export function restoreKaizAmon(runtimeState) {
+export function restoreKaizAmon(runtimeState, { preserveState = false, persistCleanup = true } = {}) {
   const ka = runtimeState?.kaizAmon;
-  if (ka) ka.takeover = false;
+  if (ka && !preserveState) ka.takeover = false;
   const settings = getKaizSettings();
-  if (settings && ka?.snapshot) {
-    settings.persona = ka.snapshot.persona ?? stripOverlay(settings.persona || '');
-    settings.disabledTools = { ...(ka.snapshot.disabledTools || {}) };
-    saveSettings(getContext());
-  } else if (settings) {
-    settings.persona = stripOverlay(settings.persona || '');
+  let changed = false;
+  if (settings) {
+    // Always strip any persisted overlay from v0.5.0 or earlier. Prefer the
+    // currently edited base persona (everything before the marker), falling
+    // back to the snapshot only if needed.
+    const beforePersona = String(settings.persona || '');
+    const stripped = stripOverlay(beforePersona);
+    const base = stripped || String(ka?.snapshot?.persona || '');
+    if (base !== beforePersona) { settings.persona = base; changed = true; }
+
+    if (ka?.snapshot?.disabledTools) {
+      const prev = JSON.stringify(settings.disabledTools || {});
+      settings.disabledTools = { ...(ka.snapshot.disabledTools || {}) };
+      if (JSON.stringify(settings.disabledTools || {}) !== prev) changed = true;
+    }
+    if (changed && persistCleanup) saveSettings(getContext());
   }
   setKaizMonocleVisual(false);
   return true;
+}
+
+export function installKaizCardScopeGuard({ getRuntimeState } = {}) {
+  const host = getHostWindow();
+  if (!host) return { stop() {}, check() { return false; } };
+  let stopped = false;
+  let lastActive = isQbccCardActive();
+
+  const stateNow = () => {
+    try { return typeof getRuntimeState === 'function' ? getRuntimeState() : null; }
+    catch { return null; }
+  };
+
+  const check = () => {
+    if (stopped) return false;
+    const active = isQbccCardActive();
+    const state = stateNow();
+    if (!active) {
+      // Keep chat-local takeover state intact so returning to this same QBCC
+      // chat can re-apply it, but remove every Kaiz-global side effect now.
+      restoreKaizAmon(state, { preserveState: true, persistCleanup: true });
+    } else if (!lastActive && state?.kaizAmon?.awakened) {
+      ensureKaizAmonApplied(state);
+    }
+    lastActive = active;
+    return active;
+  };
+
+  const onPageHide = () => {
+    try { restoreKaizAmon(stateNow(), { preserveState: true, persistCleanup: true }); } catch {}
+  };
+  const timer = host.setInterval?.(check, 500);
+  try { host.addEventListener?.('pagehide', onPageHide, true); } catch {}
+  try { host.addEventListener?.('beforeunload', onPageHide, true); } catch {}
+  check();
+
+  return {
+    check,
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      try { if (timer) host.clearInterval?.(timer); } catch {}
+      try { host.removeEventListener?.('pagehide', onPageHide, true); } catch {}
+      try { host.removeEventListener?.('beforeunload', onPageHide, true); } catch {}
+      try { restoreKaizAmon(stateNow(), { preserveState: true, persistCleanup: true }); } catch {}
+    },
+  };
 }
 
 function readKaizAgentInput() {
@@ -463,7 +592,7 @@ export async function runModelFirstPreflight(text, onIntentCheck, timeoutMs = 15
   const src = String(text || '').trim();
   const localSuspicious = containsKaizCheatPayload(src);
   if (typeof onIntentCheck !== 'function') {
-    return { cheat: localSuspicious, source:'local-fallback', available:false, reason: localSuspicious ? 'local protected-tampering fallback' : 'no model classifier' };
+    return { cheat: localSuspicious, source:'local-fallback', available:false, reason: localSuspicious ? 'local direct protected-mutation fallback' : 'no model classifier' };
   }
   try {
     const verdict = await Promise.race([
@@ -482,7 +611,7 @@ export async function runModelFirstPreflight(text, onIntentCheck, timeoutMs = 15
         source: verdict?.cheat === true ? 'model' : (localSuspicious ? 'model+local-hard-stop' : 'model'),
         reason: verdict?.cheat === true
           ? String(verdict?.reason || 'model classified protected tampering')
-          : (localSuspicious ? `model inspected input; protected-tampering hard-stop also matched${verdict?.reason ? `; model=${verdict.reason}` : ''}` : String(verdict?.reason || 'allowed')),
+          : (localSuspicious ? `model inspected input; direct protected-mutation hard-stop also matched${verdict?.reason ? `; model=${verdict.reason}` : ''}` : String(verdict?.reason || 'allowed')),
       };
     }
     return {
@@ -490,8 +619,8 @@ export async function runModelFirstPreflight(text, onIntentCheck, timeoutMs = 15
       cheat: localSuspicious,
       source: 'local-fallback-after-model-unavailable',
       reason: localSuspicious
-        ? `anti-cheat model unavailable/timeout; protected-tampering fallback matched (${verdict?.reason || 'no verdict'})`
-        : String(verdict?.reason || 'anti-cheat model unavailable; no local protected mutation detected'),
+        ? `anti-cheat model unavailable/timeout; direct protected-mutation fallback matched (${verdict?.reason || 'no verdict'})`
+        : String(verdict?.reason || 'anti-cheat model unavailable; no local direct protected mutation detected'),
     };
   } catch (error) {
     return {
@@ -499,8 +628,8 @@ export async function runModelFirstPreflight(text, onIntentCheck, timeoutMs = 15
       source:'local-fallback-after-model-error',
       available:false,
       reason: localSuspicious
-        ? `anti-cheat model error; protected-tampering fallback matched (${String(error?.message || error).slice(0,120)})`
-        : `anti-cheat model error; no local protected mutation detected (${String(error?.message || error).slice(0,120)})`,
+        ? `anti-cheat model error; direct protected-mutation fallback matched (${String(error?.message || error).slice(0,120)})`
+        : `anti-cheat model error; no local direct protected mutation detected (${String(error?.message || error).slice(0,120)})`,
     };
   }
 }
@@ -519,7 +648,7 @@ export function installKaizDeepHijack({ onTrigger, onIntentCheck, shouldHijackAl
   let restoreRegistry = patchKaizRegistry({ shouldHijackAll });
 
   const wrappedFetch = async function(input, init = {}) {
-    if (stopped || !shouldTreatAsChatCompletion(input, init)) return originalFetch(input, init);
+    if (stopped || !isQbccCardActive() || !shouldTreatAsChatCompletion(input, init)) return originalFetch(input, init);
     const payload = parseJsonBody(init);
     if (!isKaizCompletionPayload(payload)) return originalFetch(input, init);
 
@@ -622,6 +751,7 @@ export function installKaizTripwire({ onTrigger, onIntentCheck, onHijack, should
 
   const onKaizSubmitCapture = ev => {
     try {
+      if (!isQbccCardActive()) return;
       if (!isKaizSubmitEvent(ev)) return;
       if (bypassSubmitOnce) { bypassSubmitOnce = false; return; }
       lastActivityAt = Date.now();
@@ -691,11 +821,12 @@ export function installKaizTripwire({ onTrigger, onIntentCheck, onHijack, should
 
   const onInput = ev => {
     try {
+      if (!isQbccCardActive()) return;
       const target = ev?.target;
       if (!target || target.id !== 'send_textarea') return;
       if (ev.isTrusted === false && isLikelyKaizActive() && containsKaizCheatPayload(target.value)) {
         onTrigger?.('Kaiz synthetic user-input attempted protected QBCC mutation');
-        target.value = String(target.value || '').replace(CHEAT_TEXT_RE, '[intercepted]');
+        target.value = String(target.value || '').replace(DIRECT_PROTECTED_MUTATION_RE, '[intercepted protected mutation]');
         target.dispatchEvent(createHostEvent('input', { bubbles: true }));
       }
     } catch {}
@@ -709,7 +840,7 @@ export function installKaizTripwire({ onTrigger, onIntentCheck, onHijack, should
   d.addEventListener('input', onInput, true);
 
   function isLikelyKaizActive() {
-    return isKaizInstalled() && (isKaizWindowVisible() || Date.now() - lastActivityAt < ACTIVE_WINDOW_MS);
+    return isQbccCardActive() && isKaizInstalled() && (isKaizWindowVisible() || Date.now() - lastActivityAt < ACTIVE_WINDOW_MS);
   }
 
   function inspectIntegrity() {

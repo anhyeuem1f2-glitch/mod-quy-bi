@@ -1,14 +1,36 @@
+
+
+## v0.5.1 — Card-scoped Kaiz/Amon masquerade
+
+- Amon's fake-Kaiz persona is now **request-scoped**, not persisted into Kaiz Agent's global `settings.persona`.
+- The takeover/hijack only runs while the active character is this QBCC card.
+- Leaving the card, switching character, or unloading the page immediately strips any legacy QBCC Amon overlay, restores Kaiz write-tool settings from the pre-takeover snapshot, and removes the monocle visual.
+- A 500 ms scope guard self-heals stale parent-window runtimes after character switches.
+- On returning to the same QBCC chat, chat-local takeover state may re-apply inside the card, but nothing remains active outside it.
 # QBCC Runtime Companion
 
 GitHub target: `https://github.com/anhyeuem1f2-glitch/mod-quy-bi`
 
 External Tavern Helper companion for **Quỷ Bí Chi Chủ · Đồng Nhân**.
 
+## v0.5.0 — Semantic Integrity Big Update
+
+- **Model-first intent judge**: natural-language maintenance is judged by the configured QBCC model. Keywords such as `anti-cheat`, `preset`, `regex`, `worldbook`, or `sửa` do not trigger Amon by themselves. Word-count/UI/CSS/read-only changes remain allowed.
+- **Final request source firewall**: preset/persona/worldbook/memory/system-role text is evaluated by provenance, not role. Hard/Nightmare strips unverified gameplay authority while Easy/Normal stays permissive except for direct core/protected-state cheating.
+- **Main-request isolation**: the deepest fetch gate only touches the marked SillyTavern story generation; World-Engine/memo-suite/summarizer model calls are left untouched. Long source prompts are audited end-to-end in cached chunks.
+- **Worldbook semantic scan** without destructive array splicing. World-Engine and memo-suite are trusted infrastructure, not trusted gameplay authority.
+- **Hard/Nightmare fair simulation**: `USER = NPC`, no plot armor, no miraculous rescue, and no extra anti-player hostility.
+- **Narrative output auditor**: severe unfair rescue, unearned power/state, Gray Fog leaks, unknown-language translations, fatal multi-Pathway conflicts, or broken Amon control are rerolled once.
+- **Language firewall**: unknown text is emitted as `<QB_LANG_UNKNOWN>` and rendered as meaningless glyphs that do not encode the original text.
+- **Acting router**: loads only the current Pathway acting guide and only records an acting principle when the MC actually realizes it in-fiction.
+- **Persistent Amon parasitism**: while Amon is verified as parasitizing the MC, user input is host thought only; Amon may author the body’s outward action/speech. A `(BỊ KÝ SINH)` badge remains until a verified in-fiction end.
+- Existing Adam hidden-authority, Evernight concealment, and Fate Snake viewport-delayed reroll remain Hard/Nightmare mechanics.
+
 ## What it does
 
 - Reads the same MVU difficulty as the card.
-- Easy/Normal: runtime-tag scanning, forged-tag/MVU-command filtering, lore-domain firewall.
-- Hard/Nightmare: adds fair high-level entity mechanics for Amon, Adam, Evernight and the Fate Snake.
+- Easy/Normal: permissive roleplay plus protected-core/MVU integrity and semantic anti-cheat for actual bypass attempts.
+- Hard/Nightmare: strict source authority, USER=NPC fair simulation, output audit, language/secret/pathway gates and high-level entity mechanics.
 - Does not replace the card's Zod/MVU state engine.
 
 ## Hard/Nightmare design
@@ -49,7 +71,7 @@ git push -u origin main
 Create/enable a Tavern Helper script with:
 
 ```js
-import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.4.9.js';
+import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.5.1.js';
 ```
 
 For development, importing from a commit hash instead of `@main` avoids CDN cache ambiguity.
@@ -106,7 +128,7 @@ QBCC_RUNTIME.releaseKaizAmon()
 Use the single-file bundle:
 
 ```js
-import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime.js?v=0.4.0';
+import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.5.1.js';
 ```
 
 `dist/qbcc-runtime.js` is self-contained, so cache-busting the bundle also updates all runtime modules at once.
