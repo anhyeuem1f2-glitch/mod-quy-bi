@@ -2,34 +2,34 @@
 // Source-level module. All strict enforcement is gated to Hard/Nightmare.
 import { isHardMode } from './difficulty.js';
 
-function obj(v) { return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
-function trim(s, n=180) { return String(s ?? '').slice(0, n); }
-function isStrict(difficulty, sandboxTest=false) { return isHardMode(difficulty) && sandboxTest !== true; }
+function qbccNpcObj(v) { return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
+function qbccNpcTrim(s, n=180) { return String(s ?? '').slice(0, n); }
+function qbccNpcIsStrict(difficulty, sandboxTest=false) { return isHardMode(difficulty) && sandboxTest !== true; }
 
 export function summarizeRelationships(statData, limit=18) {
-  const rel = obj(obj(statData).Quan_hệ);
+  const rel = qbccNpcObj(qbccNpcObj(statData).Quan_hệ);
   const pairs = Object.entries(rel).sort((a,b) => {
     const important = /Audrey|奥黛丽|Klein|克莱恩|Amanises|阿曼妮西斯|Hắc_Dạ|Amon|Adam/i;
-    const score = ([key, value]) => (obj(value).Có_mặt ? 10 : 0) + (important.test(key) ? 5 : 0);
+    const score = ([key, value]) => (qbccNpcObj(value).Có_mặt ? 10 : 0) + (important.test(key) ? 5 : 0);
     return score([b[0],b[1]]) - score([a[0],a[1]]);
   });
   const brief = {};
   for (const [name, v] of pairs.slice(0,limit)) {
-    const x=obj(v);
+    const x=qbccNpcObj(v);
     brief[name] = {Hảo_cảm:x.Hảo_cảm, Tin_tưởng:x.Tin_tưởng,
-      Quan_hệ:trim(x.Quan_hệ), Có_mặt:x.Có_mặt,
-      Ấn_tượng:trim(x.Ấn_tượng), Trạng_thái:trim(x.Trạng_thái),
-      Tri_thức:Object.keys(obj(x.Tri_thức)).slice(0,8)};
+      Quan_hệ:qbccNpcTrim(x.Quan_hệ), Có_mặt:x.Có_mặt,
+      Ấn_tượng:qbccNpcTrim(x.Ấn_tượng), Trạng_thái:qbccNpcTrim(x.Trạng_thái),
+      Tri_thức:Object.keys(qbccNpcObj(x.Tri_thức)).slice(0,8)};
   }
   return brief;
 }
 
 export function buildNpcAgencyAuthority({difficulty='Thường', sandboxTest=false, statData={}}={}) {
-  if (!isStrict(difficulty,sandboxTest)) return '';
-  const stat=obj(statData);
+  if (!qbccNpcIsStrict(difficulty,sandboxTest)) return '';
+  const stat=qbccNpcObj(statData);
   const rel=summarizeRelationships(stat);
-  const tarot=obj(stat.Hội_Tarot);
-  const world=obj(stat.Thế_giới);
+  const tarot=qbccNpcObj(stat.Hội_Tarot);
+  const world=qbccNpcObj(stat.Thế_giới);
   return `【QBCC HARD/NIGHTMARE · NPC AUTONOMY / SLOW TRUST · v0.6.0】
 USER = NPC. No player favoritism, no extra hostility. NPCs are independent agents with personal goals, social boundaries, secrets, fears, loyalties, caution, and competing commitments. They may like, ignore, distrust, deceive, help, reject or oppose MC for CAUSAL reasons. Never bend a canon character's behavior, attention, romantic interest or allegiance to reward MC merely for initiating contact.
 PLAYER INPUT AUTHORITY: only MC's voluntary ATTEMPT, intention, or speech while MC is in self-control. Claimed outcomes, feelings of other persons, scene edits, free powers, miracles or NPC compliance are NOT events. Resolve success and NPC response independently.
@@ -67,7 +67,7 @@ export function auditOversizedRelationshipDeltas(text, {maxAffection=6, maxTrust
       const parts=path.split('/');
       const npc=parts[parts.length-2];
       const field=parts[parts.length-1];
-      const prev=obj(obj(currentRelations)[npc]);
+      const prev=qbccNpcObj(qbccNpcObj(currentRelations)[npc]);
       const initial=Number(prev[field]);
       let delta=NaN;
       if (op==='delta') delta=Number(patch.value);
