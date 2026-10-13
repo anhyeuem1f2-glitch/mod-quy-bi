@@ -1,0 +1,19 @@
+SOURCE OF TRUTH / PINNED UPSTREAM REPO
+Repository: https://github.com/anhyeuem1f2-glitch/mod-quy-bi
+Clone URL:  https://github.com/anhyeuem1f2-glitch/mod-quy-bi.git
+Branch:     main
+Commit SHA: 661cf10182998a44c09bcf76aa26923f9be36732
+Version:    v0.5.1
+Commit verified by GitHub public API: https://api.github.com/repos/anhyeuem1f2-glitch/mod-quy-bi/commits/main
+
+The ZIP contains verified source patches + a Windows updater, NOT a full checked-out
+Git repository. When the updater runs, it downloads the complete repo into an
+OS temporary folder and verifies exact origin and commit SHA BEFORE applying any
+patch. Mismatch -> stop; no force-push.
+
+Expected built output after successful run:
+  dist/qbcc-runtime-v0.6.0.js
+  BUILD_OUTPUT/qbcc-runtime-v0.6.0.js
+
+Note: Container did not have git network access, so upstream tests and runtime
+bundle build will run in the user's own Windows environment via the updater.
