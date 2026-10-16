@@ -1,3 +1,26 @@
+# QBCC Runtime Companion v0.6.0 — NPC độc lập và công bằng
+
+**Bản v0.6.0 đã được build sẵn từ repository `QBCC_Runtime_Companion.zip` do người dùng cung cấp.**
+
+- `dist/qbcc-runtime-v0.6.0.js` là bundle Tavern Helper sẵn dùng; `dist/qbcc-runtime.js` cũng được cập nhật. `dist/qbcc-runtime-v0.5.1.js` được giữ để không làm hỏng các card cũ.
+- Ở **Khó / Ác mộng**, `MC = NPC`; NPC có quyền tự quyết, thiện cảm/tin tưởng tăng theo bằng chứng, không được cấp quyền tiếp cận Nguyên Bảo hay gây chú ý thần linh chỉ vì cầu nguyện.
+- Runtime chặn tăng thiện cảm/tin tưởng quá mức trong khối JSONPatch đã nhận dạng và yêu cầu model đánh giá nội dung kể chuyện. Giới hạn không bảo đảm chặn mọi định dạng cập nhật MVU; cần kiểm thử trên SillyTavern thực tế.
+- Giữ Amon, Adam, Hắc Dạ, Rắn Vận Mệnh và các cơ chế gameplay trước đây.
+
+## Cập nhật GitHub từ ZIP này — một nút duy nhất
+
+1. **Giải nén ZIP vào thư mục cha** của thư mục `QBCC_Runtime_Companion` đang có `.git`. Ví dụ nếu repo cũ ở `D:\QBCC_Runtime_Companion`, hãy giải nén vào `D:\` và chọn ghi đè file trùng tên. Không tạo `QBCC_Runtime_Companion\QBCC_Runtime_Companion`.
+2. Chạy **`PUSH_TO_GITHUB.cmd`** ngay trong thư mục repo đó. File chỉ dùng Git; **không cần cài Python hoặc Node.js** vì runtime đã build sẵn.
+3. Sau khi thấy `[OK]`, kiểm tra `https://github.com/anhyeuem1f2-glitch/mod-quy-bi/tree/main/dist`: cần có `qbcc-runtime-v0.6.0.js`.
+4. Card v0.6.0 được phát hành **riêng**, không có trong ZIP mã nguồn này; trong Tavern Helper import: `import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.6.0.js';`
+5. Reload SillyTavern và mở console `QBCC_RUNTIME.diagnostics()`: version phải là `0.6.0`.
+
+### Phát triển sau này (không bắt buộc khi push)
+
+Có thể chạy `npm run verify` với Node.js >=18 để check/test/build lại, hoặc `node build_bundle.mjs`. Builder mới bảo toàn các runtime versioned cũ. Không cần chạy `build_bundle.py`.
+
+---
+
 
 
 ## v0.5.1 — Card-scoped Kaiz/Amon masquerade

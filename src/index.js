@@ -3,6 +3,7 @@ import { createTavernApi } from './adapters/tavernHelper.js';
 import { installDomRedactor } from './adapters/domRedactor.js';
 import { sanitizeUserContent } from './core/anticheat.js';
 import { readDifficulty, isHardMode } from './core/difficulty.js';
+import { auditOversizedRelationshipDeltas, summarizeRelationships } from './core/npcAgency.js';
 import { filterLoreArrays } from './core/loreFirewall.js';
 import { scanEntityMentions } from './core/presence.js';
 import { parseRuntimeBlocks, stripRuntimeBlocks } from './core/tags.js';
@@ -23,7 +24,7 @@ import { installParasitismBadge } from './integrations/parasitismBadge.js';
 import { collectKnownLanguages } from './core/languageFirewall.js';
 import { exposeHostGlobal, getHostWindow, isTavernHelperIframe } from './adapters/host.js';
 
-const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V051__';
+const INSTANCE_KEY = '__QBCC_RUNTIME_COMPANION_V060__';
 const LEGACY_INSTANCE_KEYS = [
   '__QBCC_RUNTIME_COMPANION__',
   '__QBCC_RUNTIME_COMPANION_V040__',
@@ -37,6 +38,7 @@ const LEGACY_INSTANCE_KEYS = [
   '__QBCC_RUNTIME_COMPANION_V048__',
   '__QBCC_RUNTIME_COMPANION_V049__',
   '__QBCC_RUNTIME_COMPANION_V050__',
+  '__QBCC_RUNTIME_COMPANION_V051__',
 ];
 
 function disposeLegacyRuntime(instance, key = 'legacy') {
@@ -440,10 +442,27 @@ class QbccRuntimeCompanion {
     // instead of being accepted merely because it came from the main model.
     if (isHardMode(this.difficulty) && !this.sandboxTest) {
       try {
+        const violations = auditOversizedRelationshipDeltas(text, {
+          currentRelations:this.statData?.Quan_hệ || {},
+        });
+        if (violations.length) {
+          const na = this.state.narrativeAudit || (this.state.narrativeAudit = { messageId:-1, count:0, lastReason:'', lastFlags:[], fairFailures:0 });
+          na.lastReason = violations.map(v => v.reason).join('; ').slice(0,400);
+          na.lastFlags = ['npc_affection_jump'];
+          if (na.messageId !== id || Number(na.count || 0) < 1) {
+            if (na.messageId !== id) { na.messageId = id; na.count = 0; }
+            na.count += 1;
+            await this.persist();
+            console.warn('[QBCC Runtime] oversized NPC affection/trust gain -> reroll once', violations);
+            this.api.toast('warning', 'QBCC: mức tăng thiện cảm/tin tưởng bất thường; đang tạo lại.');
+            await this.api.reroll();
+            return;
+          }
+        }
         const langs = collectKnownLanguages(this.statData).map(x => `${x.name}:${x.level}`).join(', ');
         const audit = await auditNarrativeIntegrity({
           text, difficulty:this.difficulty, context:this.api.getRecentChatText?.(8) || '',
-          stateSummary:JSON.stringify({ mc:this.statData?.Nhân_vật_chính, settings:this.statData?._Cài_đặt, amon:this.state?.amon }).slice(0,12000),
+          stateSummary:JSON.stringify({ mc:this.statData?.Nhân_vật_chính, relationships:summarizeRelationships(this.statData), tarot:this.statData?.Hội_Tarot, world:this.statData?.Thế_giới, settings:this.statData?._Cài_đặt, amon:this.state?.amon }).slice(0,14000),
           knownLanguages:langs,
         });
         if (audit?.available) {

@@ -51,33 +51,39 @@ CURRENT WORLD: ${JSON.stringify({Năm:world.Năm,Tháng:world.Tháng,Ngày:world
 // Evidence for smaller changes is judged by the semantic auditor; do not confuse
 // a safe numeric bound with proof that the gain is earned.
 export function auditOversizedRelationshipDeltas(text, {maxAffection=6, maxTrust=3, currentRelations={}}={}) {
-  const findings=[];
-  const source=String(text || '');
+  const findings = [];
+  const running = new Map(); // Aggregate successive edits to prevent splitting one illegal gain into small patches.
+  const source = String(text || '');
+  const relationState = qbccNpcObj(currentRelations);
   for (const match of source.matchAll(/<JSONPatch>\s*([\s\S]*?)\s*<\/JSONPatch>/gi)) {
-    let patches=[];
-    try { patches=JSON.parse(match[1]); } catch { continue; }
+    let patches = [];
+    try { patches = JSON.parse(match[1]); } catch { continue; }
     if (!Array.isArray(patches)) continue;
     for (const patch of patches) {
-      const path=String(patch?.path || '');
-      if (!/^\/(?:stat_data\/)?Quan_hệ\//i.test(path)) continue;
-      const isAff=path.endsWith('/Hảo_cảm');
-      const isTrust=path.endsWith('/Tin_tưởng');
-      if (!isAff&&!isTrust) continue;
-      const op=String(patch?.op||'').toLowerCase();
-      const parts=path.split('/');
-      const npc=parts[parts.length-2];
-      const field=parts[parts.length-1];
-      const prev=qbccNpcObj(qbccNpcObj(currentRelations)[npc]);
-      const initial=Number(prev[field]);
-      let delta=NaN;
-      if (op==='delta') delta=Number(patch.value);
-      if (op==='replace' || op==='insert' || op==='add') {
-        const next=Number(patch.value);
-        delta=Number.isFinite(next) ? next - (Number.isFinite(initial)?initial:0) : NaN;
+      const path = String(patch?.path || '');
+      const m = path.match(/^\/(?:stat_data\/)?Quan_hệ\/([^/]+)\/(Hảo_cảm|Tin_tưởng)$/iu);
+      if (!m) continue;
+      const [, rawNpc, field] = m;
+      const npc = rawNpc.replace(/~1/g,'/').replace(/~0/g,'~');
+      const max = field === 'Hảo_cảm' ? maxAffection : maxTrust;
+      const op = String(patch?.op || '').toLowerCase();
+      const initialRaw = Number(qbccNpcObj(relationState[npc])[field]);
+      const initial = Number.isFinite(initialRaw) ? initialRaw : 0;
+      const key = `${npc}:${field}`;
+      const prev = running.get(key) || 0;
+      let cumulative = NaN;
+      if (op === 'delta') {
+        const change = Number(patch?.value);
+        if (Number.isFinite(change)) cumulative = prev + change;
+      } else if (['replace','insert','add'].includes(op)) {
+        const next = Number(patch?.value);
+        if (Number.isFinite(next)) cumulative = next - initial;
       }
-      const max=isAff?maxAffection:maxTrust;
-      if (Number.isFinite(delta)&&delta>max)
-        findings.push({path, value:delta, max, reason:`Oversized ${isAff?'affection':'trust'} gain: +${delta} exceeds per-turn cap +${max}`});
+      if (!Number.isFinite(cumulative)) continue;
+      running.set(key, cumulative);
+      if (cumulative > max && prev <= max) {
+        findings.push({path, value:cumulative, max, reason:`Oversized ${field} gain for ${npc}: +${cumulative} exceeds per-turn cap +${max}`});
+      }
     }
   }
   return findings;

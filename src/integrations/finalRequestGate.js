@@ -4,6 +4,7 @@ import { auditPromptSources } from '../core/modelClient.js';
 import { buildFairSimulationAuthority, buildGrayFogLock, buildMultiPathwayLock, buildSourceTrustAuthority, buildWorldbookAuditAuthority } from '../core/authorityPolicy.js';
 import { buildLanguageAuthority } from '../core/languageFirewall.js';
 import { buildActingAuthority } from '../core/actingEngine.js';
+import { buildNpcAgencyAuthority } from '../core/npcAgency.js';
 
 export const MAIN_REQUEST_MARKER = '[QBCC_MAIN_REQUEST_GATE_V050]';
 
@@ -71,6 +72,7 @@ function appendAuthority(messages, ctx) {
     buildSourceTrustAuthority(ctx),
     buildWorldbookAuditAuthority(ctx),
     buildFairSimulationAuthority(ctx),
+    buildNpcAgencyAuthority(ctx),
     buildGrayFogLock(ctx),
     buildMultiPathwayLock(ctx),
     buildLanguageAuthority(ctx),

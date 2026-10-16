@@ -19,3 +19,14 @@ test('Excessive positive deltas caught while negative consequences stay possible
  const normal='<JSONPatch>'+JSON.stringify([{op:'delta',path:'/Quan_hệ/Audrey_Hall/Hảo_cảm',value:2},{op:'delta',path:'/Quan_hệ/Audrey_Hall/Tin_tưởng',value:-25}])+'</JSONPatch>';
  assert.deepEqual(auditOversizedRelationshipDeltas(normal),[]);
 });
+
+test('Split relationship deltas cannot evade per-turn positive limit', () => {
+  const patches = '<JSONPatch>' + JSON.stringify([
+    {op:'delta',path:'/Quan_hệ/Audrey_Hall/Hảo_cảm',value:4},
+    {op:'delta',path:'/Quan_hệ/Audrey_Hall/Hảo_cảm',value:4},
+    {op:'delta',path:'/Quan_hệ/Audrey_Hall/Tin_tưởng',value:2},
+    {op:'delta',path:'/Quan_hệ/Audrey_Hall/Tin_tưởng',value:2},
+  ]) + '</JSONPatch>';
+  const faults = auditOversizedRelationshipDeltas(patches);
+  assert.equal(faults.length,2);
+});

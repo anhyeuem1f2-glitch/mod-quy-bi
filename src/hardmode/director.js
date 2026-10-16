@@ -1,4 +1,5 @@
 import { isHardMode } from '../core/difficulty.js';
+import { buildNpcAgencyAuthority } from '../core/npcAgency.js';
 import { buildRuntimeProtocol } from './protocol.js';
 import { resolveAmonTheft, wrapStolenUserInput, isAmonParasitizingMc } from '../entities/amon.js';
 import { buildAdamHiddenPrompt } from '../entities/adam.js';
@@ -83,6 +84,8 @@ export function applyHardModeToTextPrompt(prompt, ctx) {
   if (adam) extra.push(adam);
   const evernight = evernightPrompt(ctx.runtimeState.evernight);
   if (evernight) extra.push(evernight);
+  const agency = buildNpcAgencyAuthority({difficulty:ctx.difficulty, sandboxTest:ctx.runtimeState?.sandboxTest === true, statData:ctx.statData});
+  if (agency) extra.push(agency);
   extra.push(buildRuntimeProtocol({ needsAmonClassification: ctx.runtimeState.amon.needsClassification }));
   const amon = resolveAmonTheft(ctx.runtimeState.amon, ctx.statData);
   if (!amonAuthority && (amon.mode === 'steal_input' || amon.mode === 'steal_narrative')) {

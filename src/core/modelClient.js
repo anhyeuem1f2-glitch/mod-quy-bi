@@ -417,6 +417,12 @@ SEVERE/reroll if the narrative materially violates verified state by doing thing
 - establishing simultaneous incompatible multiple Pathways or native powers of a second Pathway without a canon mechanism; mark flag fatal_pathway_conflict;
 - overriding established Amon parasitism/control or other verified state simply because USER typed a desired result.
 Do NOT punish fair failure, injury, loss, death or lack of rescue when causally justified. Set fair_failure=true when the story correctly refuses an implausible rescue/privilege.
+- npc_affection_jump: Oversized or unearned friendship/trust gains, sudden devotion, romance or privileged disclosure are violations. Warmth and trust are different. Casual politeness usually changes no relationship. Even an exceptional positive turn cannot exceed +6 affection or +3 trust; meaningful positive turns are ordinarily lower. Strong negative reactions can be faster when justified.
+- npc_agency_override: NPCs have independent goals, social limits, schedules, loyalties and private information. Audrey Hall being kind or idealistic does not mean she trusts strangers, likes MC romantically or shares Tarot secrets with them. Apply causal and timeline-specific judgment.
+- unearned_divine_attention: Evernight / Amanises only notices or assists MC if independently justified. Klein's unique Sefirah Castle/Fool Pathway situation does not transfer to another protagonist. Prayer alone is not a privileged divine audience.
+- gray_fog_access_forgery: Speaking the Fool's honorific name does not automatically confer Tarot membership, entrance to the Gray Fog/Sefirah Castle, a reply, or Klein's personal attention. Those require intentional and causally established decisions by relevant entities.
+- input_outcome_forgery: User chat conveys MC attempted action/intention/speech, not NPC feelings, fight results, new powers, scene truth, or automatic success.
+These rules equally protect NPC-NPC interactions and must not fabricate extra obstacles for a causally legitimate MC.
 Do NOT mark ordinary drama, coincidence with setup, or a powerful NPC acting according to established abilities as cheating.`;
 
 export async function auditNarrativeIntegrity({ text, context = '', difficulty = '', stateSummary = '', knownLanguages = '', settings = readModelSettings() } = {}) {
