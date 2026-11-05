@@ -110,19 +110,11 @@ class QbccRuntimeCompanion {
   }
 
   detectSandboxTestMode() {
-    try {
-      const hw = getHostWindow();
-      const ctx = hw?.SillyTavern?.getContext?.();
-      const char = ctx?.characters?.[ctx?.characterId];
-      const d = char?.data || char || {};
-      const scripts = d?.extensions?.tavern_helper?.scripts || char?.extensions?.tavern_helper?.scripts || [];
-      if (Array.isArray(scripts) && scripts.some(x => /QBCC\s+Sandbox\s+Test\s+Override/i.test(String(x?.name || '')) && x?.enabled !== false && x?.disabled !== true)) return true;
-      const entries = d?.character_book?.entries || char?.character_book?.entries || [];
-      return Array.isArray(entries) && entries.some(e => {
-        const c = `${e?.comment || ''}\n${e?.content || ''}`;
-        return /QBCC[_\s-]*SANDBOX[_\s-]*TEST|\[QBCC TEST\]\s*Sandbox/i.test(c);
-      });
-    } catch { return false; }
+    // SECURITY: User-editable character entries, lorebook content and helper
+    // script names MUST NOT disable Hard/Nightmare protections. Earlier
+    // versions allowed any matching entry to set sandboxTest=true. This
+    // fail-open bypass is disabled in the production runtime.
+    return false;
   }
 
   entityAuthorityEnabled() {

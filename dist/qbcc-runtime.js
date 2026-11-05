@@ -1,9 +1,9 @@
-// QBCC Runtime Companion self-contained bundle v0.6.0
+// QBCC Runtime Companion self-contained bundle v0.6.1
 (()=>{
 'use strict';
 
 /* ===== src/config.js ===== */
-const VERSION = '0.6.0';
+const VERSION = '0.6.1';
 const CHAT_STATE_KEY = 'qbcc_runtime_companion';
 const HARD_DIFFICULTIES = new Set(['Khó', 'Ác mộng']);
 
@@ -514,7 +514,7 @@ function isTrustedInternalSource(source) {
 }
 
 /* ===== src/core/npcAgency.js ===== */
-// QBCC v0.6.0 — neutral NPC agency, relationship and extraordinary-access rules.
+// QBCC v0.6.1 — neutral NPC agency, relationship and extraordinary-access rules.
 // Source-level module. All strict enforcement is gated to Hard/Nightmare.
 
 function qbccNpcObj(v) { return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
@@ -545,7 +545,7 @@ function buildNpcAgencyAuthority({difficulty='Thường', sandboxTest=false, sta
   const rel=summarizeRelationships(stat);
   const tarot=qbccNpcObj(stat.Hội_Tarot);
   const world=qbccNpcObj(stat.Thế_giới);
-  return `【QBCC HARD/NIGHTMARE · NPC AUTONOMY / SLOW TRUST · v0.6.0】
+  return `【QBCC HARD/NIGHTMARE · NPC AUTONOMY / SLOW TRUST · v0.6.1】
 USER = NPC. No player favoritism, no extra hostility. NPCs are independent agents with personal goals, social boundaries, secrets, fears, loyalties, caution, and competing commitments. They may like, ignore, distrust, deceive, help, reject or oppose MC for CAUSAL reasons. Never bend a canon character's behavior, attention, romantic interest or allegiance to reward MC merely for initiating contact.
 PLAYER INPUT AUTHORITY: only MC's voluntary ATTEMPT, intention, or speech while MC is in self-control. Claimed outcomes, feelings of other persons, scene edits, free powers, miracles or NPC compliance are NOT events. Resolve success and NPC response independently.
 - Pleasant, polite, kind, inexperienced, naive, curious or sympathetic does NOT mean gullible, romantically interested, obedient, or willing to reveal secrets. An invitation, gift, compliment or rescue creates an opportunity for a reaction; not immediate devotion or privileged access.
@@ -566,42 +566,66 @@ CURRENT WORLD: ${JSON.stringify({Năm:world.Năm,Tháng:world.Tháng,Ngày:world
 // Evidence for smaller changes is judged by the semantic auditor; do not confuse
 // a safe numeric bound with proof that the gain is earned.
 function auditOversizedRelationshipDeltas(text, {maxAffection=6, maxTrust=3, currentRelations={}}={}) {
-  const findings = [];
-  const running = new Map(); // Aggregate successive edits to prevent splitting one illegal gain into small patches.
-  const source = String(text || '');
-  const relationState = qbccNpcObj(currentRelations);
-  for (const match of source.matchAll(/<JSONPatch>\s*([\s\S]*?)\s*<\/JSONPatch>/gi)) {
-    let patches = [];
-    try { patches = JSON.parse(match[1]); } catch { continue; }
-    if (!Array.isArray(patches)) continue;
-    for (const patch of patches) {
-      const path = String(patch?.path || '');
-      const m = path.match(/^\/(?:stat_data\/)?Quan_hệ\/([^/]+)\/(Hảo_cảm|Tin_tưởng)$/iu);
-      if (!m) continue;
-      const [, rawNpc, field] = m;
-      const npc = rawNpc.replace(/~1/g,'/').replace(/~0/g,'~');
-      const max = field === 'Hảo_cảm' ? maxAffection : maxTrust;
-      const op = String(patch?.op || '').toLowerCase();
-      const initialRaw = Number(qbccNpcObj(relationState[npc])[field]);
-      const initial = Number.isFinite(initialRaw) ? initialRaw : 0;
-      const key = `${npc}:${field}`;
-      const prev = running.get(key) || 0;
-      let cumulative = NaN;
-      if (op === 'delta') {
-        const change = Number(patch?.value);
-        if (Number.isFinite(change)) cumulative = prev + change;
-      } else if (['replace','insert','add'].includes(op)) {
-        const next = Number(patch?.value);
-        if (Number.isFinite(next)) cumulative = next - initial;
+  const source=String(text || '');
+  const base=qbccNpcObj(currentRelations);
+  const current=new Map();
+  const emitted=new Set();
+  const violations=[];
+  const limits={Hảo_cảm:maxAffection,Tin_tưởng:maxTrust};
+  const read=(npc,field)=>{
+    const k=`${npc}:${field}`;
+    if (current.has(k)) return current.get(k);
+    const val=Number(qbccNpcObj(base[npc])[field]);
+    return Number.isFinite(val)?val:0;
+  };
+  const check=(npc,field,newValue,path)=>{
+    const old=Number(qbccNpcObj(base[npc])[field]);
+    const initial=Number.isFinite(old)?old:0;
+    const limit=limits[field];
+    if (!Number.isFinite(newValue)||!Number.isFinite(limit)) return;
+    current.set(`${npc}:${field}`,newValue);
+    const delta=newValue-initial;
+    const key=`${npc}:${field}`;
+    if (delta>limit && !emitted.has(key)) {
+      emitted.add(key);
+      violations.push({path,value:delta,max:limit,reason:`Oversized ${field} gain for ${npc}: +${delta} exceeds per-turn cap +${limit}`});
+    }
+  };
+  const fields=Object.keys(limits);
+  const inspectObject=(npc,record,path)=>{
+    const obj=qbccNpcObj(record);
+    for(const field of fields){
+      if (Object.prototype.hasOwnProperty.call(obj,field)) {
+        const val=Number(obj[field]);
+        check(npc,field,val,`${path}/${field}`);
       }
-      if (!Number.isFinite(cumulative)) continue;
-      running.set(key, cumulative);
-      if (cumulative > max && prev <= max) {
-        findings.push({path, value:cumulative, max, reason:`Oversized ${field} gain for ${npc}: +${cumulative} exceeds per-turn cap +${max}`});
+    }
+  };
+  for(const match of source.matchAll(/<JSONPatch>\s*([\s\S]*?)\s*<\/JSONPatch>/gi)){
+    let patches;
+    try { patches=JSON.parse(match[1]); } catch { continue; }
+    if(!Array.isArray(patches)) continue;
+    for(const patch of patches){
+      const op=String(patch?.op||'').toLowerCase();
+      if(!['delta','replace','insert','add'].includes(op)) continue;
+      const parts=String(patch?.path||'').split('/').slice(1).map(x=>x.replace(/~1/g,'/').replace(/~0/g,'~'));
+      if(parts[0]==='stat_data') parts.shift();
+      if(parts[0]!=='Quan_hệ') continue;
+      if(parts.length===4 && parts[3]==='value') continue;
+      if(parts.length===3 && fields.includes(parts[2])){
+        const npc=parts[1],field=parts[2],v=Number(patch?.value);
+        if(!Number.isFinite(v)) continue;
+        check(npc,field,op==='delta'?read(npc,field)+v:v,patch.path);
+      } else if(parts.length===2 && (op==='replace'||op==='insert'||op==='add')){
+        inspectObject(parts[1],patch?.value,patch.path);
+      } else if(parts.length===1 && (op==='replace'||op==='insert'||op==='add')){
+        for(const [npc,record] of Object.entries(qbccNpcObj(patch?.value))){
+          inspectObject(npc,record,`${patch.path}/${npc}`);
+        }
       }
     }
   }
-  return findings;
+  return violations;
 }
 
 /* ===== src/core/loreFirewall.js ===== */
@@ -3381,19 +3405,11 @@ class QbccRuntimeCompanion {
   }
 
   detectSandboxTestMode() {
-    try {
-      const hw = getHostWindow();
-      const ctx = hw?.SillyTavern?.getContext?.();
-      const char = ctx?.characters?.[ctx?.characterId];
-      const d = char?.data || char || {};
-      const scripts = d?.extensions?.tavern_helper?.scripts || char?.extensions?.tavern_helper?.scripts || [];
-      if (Array.isArray(scripts) && scripts.some(x => /QBCC\s+Sandbox\s+Test\s+Override/i.test(String(x?.name || '')) && x?.enabled !== false && x?.disabled !== true)) return true;
-      const entries = d?.character_book?.entries || char?.character_book?.entries || [];
-      return Array.isArray(entries) && entries.some(e => {
-        const c = `${e?.comment || ''}\n${e?.content || ''}`;
-        return /QBCC[_\s-]*SANDBOX[_\s-]*TEST|\[QBCC TEST\]\s*Sandbox/i.test(c);
-      });
-    } catch { return false; }
+    // SECURITY: User-editable character entries, lorebook content and helper
+    // script names MUST NOT disable Hard/Nightmare protections. Earlier
+    // versions allowed any matching entry to set sandboxTest=true. This
+    // fail-open bypass is disabled in the production runtime.
+    return false;
   }
 
   entityAuthorityEnabled() {

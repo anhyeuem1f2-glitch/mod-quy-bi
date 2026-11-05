@@ -1,8 +1,8 @@
-# QBCC Runtime Companion v0.6.0 — NPC độc lập và công bằng
+# QBCC Runtime Companion v0.6.1 — NPC độc lập, vá lỗi sandbox và quan hệ
 
-**Bản v0.6.0 đã được build sẵn từ repository `QBCC_Runtime_Companion.zip` do người dùng cung cấp.**
+**Bản v0.6.1 được vá trên mã nguồn đầy đủ trong ZIP runtime đã bàn giao, và đã build sẵn bundle.**
 
-- `dist/qbcc-runtime-v0.6.0.js` là bundle Tavern Helper sẵn dùng; `dist/qbcc-runtime.js` cũng được cập nhật. `dist/qbcc-runtime-v0.5.1.js` được giữ để không làm hỏng các card cũ.
+- `dist/qbcc-runtime-v0.6.1.js` là bundle Tavern Helper mới, `dist/qbcc-runtime.js` trỏ bản mới; giữ `v0.6.0` để các card trước tiếp tục import được. Bản v0.5.1 bị dọn theo yêu cầu, vì vậy card nào vẫn import v0.5.1 phải nâng cấp trước.
 - Ở **Khó / Ác mộng**, `MC = NPC`; NPC có quyền tự quyết, thiện cảm/tin tưởng tăng theo bằng chứng, không được cấp quyền tiếp cận Nguyên Bảo hay gây chú ý thần linh chỉ vì cầu nguyện.
 - Runtime chặn tăng thiện cảm/tin tưởng quá mức trong khối JSONPatch đã nhận dạng và yêu cầu model đánh giá nội dung kể chuyện. Giới hạn không bảo đảm chặn mọi định dạng cập nhật MVU; cần kiểm thử trên SillyTavern thực tế.
 - Giữ Amon, Adam, Hắc Dạ, Rắn Vận Mệnh và các cơ chế gameplay trước đây.
@@ -11,17 +11,19 @@
 
 1. **Giải nén ZIP vào thư mục cha** của thư mục `QBCC_Runtime_Companion` đang có `.git`. Ví dụ nếu repo cũ ở `D:\QBCC_Runtime_Companion`, hãy giải nén vào `D:\` và chọn ghi đè file trùng tên. Không tạo `QBCC_Runtime_Companion\QBCC_Runtime_Companion`.
 2. Chạy **`PUSH_TO_GITHUB.cmd`** ngay trong thư mục repo đó. File chỉ dùng Git; **không cần cài Python hoặc Node.js** vì runtime đã build sẵn.
-3. Sau khi thấy `[OK]`, kiểm tra `https://github.com/anhyeuem1f2-glitch/mod-quy-bi/tree/main/dist`: cần có `qbcc-runtime-v0.6.0.js`.
-4. Card v0.6.0 được phát hành **riêng**, không có trong ZIP mã nguồn này; trong Tavern Helper import: `import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.6.0.js';`
-5. Reload SillyTavern và mở console `QBCC_RUNTIME.diagnostics()`: version phải là `0.6.0`.
+3. Sau khi thấy `[OK]`, kiểm tra `https://github.com/anhyeuem1f2-glitch/mod-quy-bi/tree/main/dist`: cần có `qbcc-runtime-v0.6.1.js`.
+4. Card v0.6.6 được phát hành **riêng**, không có trong ZIP mã nguồn này; trong Tavern Helper import: `import 'https://cdn.jsdelivr.net/gh/anhyeuem1f2-glitch/mod-quy-bi@main/dist/qbcc-runtime-v0.6.1.js';`
+5. Reload SillyTavern và mở console `QBCC_RUNTIME.diagnostics()`: version phải là `0.6.1`.
 
 ### Phát triển sau này (không bắt buộc khi push)
 
-Có thể chạy `npm run verify` với Node.js >=18 để check/test/build lại, hoặc `node build_bundle.mjs`. Builder mới bảo toàn các runtime versioned cũ. Không cần chạy `build_bundle.py`.
+Có thể chạy `npm run verify` với Node.js >=18 để check/test/build lại, hoặc `node build_bundle.mjs`. Builder giữ các runtime versioned còn lại để dễ rollback; nút push sẽ dọn v0.5.1. Không cần chạy `build_bundle.py`.
 
 ---
 
 
+
+> **Lưu ý:** các mục ghi v0.5.1 dưới đây là lịch sử kỹ thuật, KHÔNG phải URL import hiện tại. Dùng URL v0.6.1 ở đầu README.
 
 ## v0.5.1 — Card-scoped Kaiz/Amon masquerade
 
@@ -177,7 +179,7 @@ QBCC_RUNTIME.releaseKaizAmon()
 
 ## Clean upgrades
 
-`PUSH_TO_GITHUB.cmd` deletes stale `dist/qbcc-runtime-v*.js` bundles before staging, so the repository keeps only the current versioned bundle plus `qbcc-runtime.js`. Runtime startup also disposes stale parent-window instances and replaces an older settings drawer.
+`PUSH_TO_GITHUB.cmd` dọn riêng `dist/qbcc-runtime-v0.5.1.js`, giữ `v0.6.0` làm phương án tương thích và phát hành bundle `v0.6.1` cùng alias `qbcc-runtime.js`. Các card còn import `v0.5.1` phải cập nhật trước khi dọn file. Runtime startup dọn instance cũ theo cơ chế vốn có.
 
 
 ## v0.4.4 deep Kaiz hijack
@@ -223,3 +225,10 @@ Hard/Nightmare entity powers now operate before the normal SillyTavern main send
 - Redaction ignores script/style/textarea/pre/code/iframe regions and also handles streamed character-data mutations.
 - Card 1.4.4 adds a display-only fallback regex before the status renderer: when a recent assistant message ends with `</UpdateVariable>` but MVU did not append `<StatusPlaceHolderImpl/>`, the placeholder is added once. Existing placeholders are not duplicated.
 - The main status renderer keeps `maxDepth: 3` to avoid mounting heavy status panels across the entire chat history.
+
+
+## v0.6.1: NPC independence + security checks
+- Release-only strict enforcement cannot be disabled by a worldbook entry or Tavern Helper script name containing `QBCC SANDBOX TEST`. The old name-triggered sandbox detection was removed.
+- Relationship change firewall examines direct numeric patches and whole-NPC or whole-relationship object replacements, including cumulative increases within one output.
+- NPC social independence and USER = NPC restrictions are active for Hard/Nightmare; Easy/Normal retains the original lightweight rules.
+- **Limits:** These are browser-side protections; a user who edits local JavaScript, state or the browser runtime can bypass them. Narrative semantic auditing/reroll requires configured model API settings; failures/missing configuration are not evidence of successful auditing. Prompt interception has to be verified in the target SillyTavern adapter via diagnostics.
